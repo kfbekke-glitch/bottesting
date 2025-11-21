@@ -41,6 +41,8 @@ export interface Booking {
   duration: number;
   status: 'confirmed' | 'cancelled';
   createdAt: number;
+  tgUserId?: string | number;
+  tgUsername?: string;
 }
 
 export enum AppView {

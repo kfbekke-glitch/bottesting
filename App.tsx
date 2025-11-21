@@ -19,10 +19,14 @@ const App: React.FC = () => {
   const [preSelectedBarberId, setPreSelectedBarberId] = useState<string | undefined>(undefined);
   const [preSelectedServiceId, setPreSelectedServiceId] = useState<string | undefined>(undefined);
   
-  // localBookings = User's personal history (persisted in localStorage)
+  // localBookings = Stored in localStorage (fallback/offline)
   const [localBookings, setLocalBookings] = useState<Booking[]>([]);
-  // serverBookings = Occupied slots from all users (fetched from Google Sheets)
+  
+  // serverBookings = All occupied slots fetched from Google Sheets
   const [serverBookings, setServerBookings] = useState<Booking[]>([]);
+
+  // authenticatedUserBookings = Bookings from server that belong to THIS Telegram user
+  const [authenticatedUserBookings, setAuthenticatedUserBookings] = useState<Booking[]>([]);
 
   // Load bookings from local storage on mount and init Telegram
   useEffect(() => {
@@ -30,7 +34,7 @@ const App: React.FC = () => {
     
     let currentLocalBookings: Booking[] = [];
 
-    // 1. Load Local History
+    // 1. Load Local History (Fallback)
     try {
       const saved = localStorage.getItem('barber_bookings');
       if (saved) {
@@ -51,24 +55,37 @@ const App: React.FC = () => {
         if (response.ok) {
           const data = await response.json();
           if (Array.isArray(data)) {
-            // a) Update Server Bookings (for blocking slots)
+            // a) Update Server Bookings (for blocking slots globally)
             const normalizedServerBookings: Booking[] = data.map((item: any, index: number) => ({
-              id: `server_${index}`, // Temporary ID for display blocking
-              realId: item.id, // Keep track of real ID if script sends it, or match by content
+              id: item.id || `server_${index}`,
               barberId: item.barberId,
-              serviceId: 'unknown',
+              serviceId: item.serviceId || 'unknown',
               date: item.date,
               timeSlot: item.timeSlot,
-              clientName: 'Occupied',
+              clientName: item.clientName || 'Occupied',
               clientPhone: '',
               price: 0,
-              duration: 45, 
+              duration: item.duration || 45, // Use duration from server if available, else default
               status: 'confirmed',
-              createdAt: 0
+              createdAt: 0,
+              tgUserId: item.tgUserId // We need this to identify own bookings
             }));
             setServerBookings(normalizedServerBookings);
 
-            // b) SYNC LOGIC: Check if local bookings are still valid on server
+            // b) CROSS-DEVICE SYNC: Find my bookings on the server
+            const tgUser = getTelegramUser();
+            if (tgUser && tgUser.id) {
+              const myServerBookings = normalizedServerBookings.filter(b => 
+                // Convert both to strings for safe comparison
+                String(b.tgUserId) === String(tgUser.id)
+              );
+              setAuthenticatedUserBookings(myServerBookings);
+            } else {
+              // If no Telegram ID (browser), fall back to local bookings for "My Bookings" logic
+              setAuthenticatedUserBookings(currentLocalBookings);
+            }
+
+            // c) SYNC LOCAL STATUS: Check if local bookings are still valid on server
             let hasChanges = false;
             const updatedLocalBookings = currentLocalBookings.map(localBooking => {
               if (localBooking.status === 'cancelled') return localBooking;
@@ -76,8 +93,9 @@ const App: React.FC = () => {
               // Check if this booking exists in the active server list
               // We match by Barber + Date + Time (since IDs might differ if we don't sync them perfectly)
               const existsOnServer = data.some((serverBooking: any) => {
+                // Fuzzy match to handle potential format differences
                 return serverBooking.barberId === localBooking.barberId &&
-                       new Date(serverBooking.date).getTime() === new Date(localBooking.date).getTime() &&
+                       new Date(serverBooking.date).getDate() === new Date(localBooking.date).getDate() &&
                        serverBooking.timeSlot === localBooking.timeSlot;
               });
 
@@ -123,8 +141,14 @@ const App: React.FC = () => {
     };
 
     // 1. Optimistic UI Update (Local)
-    saveLocalBookings([...localBookings, newBooking]);
+    const updatedLocal = [...localBookings, newBooking];
+    saveLocalBookings(updatedLocal);
     
+    // Also update authenticated bookings so the user sees it immediately without refresh
+    setAuthenticatedUserBookings(prev => [...prev, newBooking]);
+    // Add to server bookings so slot is grayed out immediately
+    setServerBookings(prev => [...prev, newBooking]);
+
     // 2. Send to Google Sheets (Backend)
     try {
       const tgUser = getTelegramUser();
@@ -139,7 +163,6 @@ const App: React.FC = () => {
         method: 'POST',
         mode: 'no-cors', 
         headers: {
-          // Using text/plain avoids CORS preflight checks which often fail with Google Scripts
           'Content-Type': 'text/plain;charset=utf-8',
         },
         body: JSON.stringify(payload),
@@ -160,6 +183,9 @@ const App: React.FC = () => {
       b.id === id ? { ...b, status: 'cancelled' as const } : b
     );
     saveLocalBookings(updated);
+    
+    // Update authenticated list too
+    setAuthenticatedUserBookings(prev => prev.filter(b => b.id !== id && b.timeSlot !== id)); // heuristic removal
 
     // 2. Server Update (Send cancellation event)
     try {
@@ -169,7 +195,6 @@ const App: React.FC = () => {
           method: 'POST',
           mode: 'no-cors',
           headers: { 
-            // Using text/plain ensures the request goes through without CORS errors
             'Content-Type': 'text/plain;charset=utf-8' 
           },
           body: JSON.stringify({ 
@@ -196,8 +221,9 @@ const App: React.FC = () => {
     setPreSelectedServiceId(undefined);
   };
 
-  // Combine local and server bookings for the wizard to know what is blocked
-  const allOccupiedBookings = [...localBookings, ...serverBookings];
+  // Determine which bookings to show in "My Bookings"
+  // Prefer authenticated server bookings (cross-device), fallback to local
+  const displayBookings = authenticatedUserBookings.length > 0 ? authenticatedUserBookings : localBookings;
 
   return (
     <div className="bg-zinc-950 text-zinc-100 font-sans h-[100dvh] max-w-md mx-auto relative overflow-hidden shadow-2xl flex flex-col">
@@ -228,7 +254,7 @@ const App: React.FC = () => {
               transition={{ duration: 0.2 }}
               className="absolute inset-0 overflow-y-auto no-scrollbar w-full h-full"
             >
-              <MyBookings bookings={localBookings} onCancelBooking={handleCancelBooking} />
+              <MyBookings bookings={displayBookings} onCancelBooking={handleCancelBooking} />
             </motion.div>
           )}
         </AnimatePresence>
@@ -247,8 +273,8 @@ const App: React.FC = () => {
             className="absolute inset-0 z-50 h-full w-full"
           >
             <BookingWizard 
-              bookings={allOccupiedBookings} // Pass ALL bookings for slot blocking
-              userBookings={localBookings}   // Pass ONLY user bookings for "One per day" check
+              bookings={serverBookings} // Pass GLOBAL server bookings for blocking slots
+              userBookings={authenticatedUserBookings} // Pass AUTHENTICATED user bookings for 1/day limit
               onComplete={handleBookingComplete} 
               onCancel={handleCloseBooking} 
               initialBarberId={preSelectedBarberId}
