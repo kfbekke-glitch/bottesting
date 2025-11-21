@@ -7,7 +7,9 @@ import { BookingWizard } from './components/BookingWizard';
 import { MyBookings } from './components/MyBookings';
 import { AppView, Booking } from './types';
 import { AnimatePresence, motion } from 'framer-motion';
-import { initTelegramApp } from './utils/telegram';
+import { initTelegramApp, getTelegramUser } from './utils/telegram';
+
+const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzlt51lxw4cj4d6jypDa1P-18pFL5NAY9ih-3Dy6J52zbNqoicigAh7z53wVSyxoX5_/exec';
 
 const App: React.FC = () => {
   const [currentView, setCurrentView] = useState<AppView>(AppView.HOME);
@@ -17,42 +19,109 @@ const App: React.FC = () => {
   const [preSelectedBarberId, setPreSelectedBarberId] = useState<string | undefined>(undefined);
   const [preSelectedServiceId, setPreSelectedServiceId] = useState<string | undefined>(undefined);
   
-  const [bookings, setBookings] = useState<Booking[]>([]);
+  // localBookings = User's personal history (persisted in localStorage)
+  const [localBookings, setLocalBookings] = useState<Booking[]>([]);
+  // serverBookings = Occupied slots from all users (fetched from Google Sheets)
+  const [serverBookings, setServerBookings] = useState<Booking[]>([]);
 
   // Load bookings from local storage on mount and init Telegram
   useEffect(() => {
     initTelegramApp();
     
+    // 1. Load Local History
     try {
       const saved = localStorage.getItem('barber_bookings');
       if (saved) {
-        setBookings(JSON.parse(saved));
+        setLocalBookings(JSON.parse(saved));
       }
     } catch (e) {
-      // Ignore errors (e.g. security restrictions in private mode)
       console.warn("Could not load bookings from storage");
     }
+
+    // 2. Fetch Occupied Slots from Server
+    const fetchServerBookings = async () => {
+      try {
+        const response = await fetch(GOOGLE_SCRIPT_URL, {
+          method: 'GET',
+          redirect: 'follow'
+        });
+        if (response.ok) {
+          const data = await response.json();
+          if (Array.isArray(data)) {
+            // Normalize server data to Booking interface
+            // Server sends minimal data: {date, timeSlot, barberId}
+            // We add default values for missing fields to satisfy the type
+            const normalized: Booking[] = data.map((item: any, index: number) => ({
+              id: `server_${index}`,
+              barberId: item.barberId,
+              serviceId: 'unknown',
+              date: item.date,
+              timeSlot: item.timeSlot,
+              clientName: 'Occupied',
+              clientPhone: '',
+              price: 0,
+              duration: 45, // Default duration for blocking if missing
+              status: 'confirmed',
+              createdAt: 0
+            }));
+            setServerBookings(normalized);
+          }
+        }
+      } catch (e) {
+        console.error("Failed to fetch server bookings", e);
+      }
+    };
+
+    fetchServerBookings();
   }, []);
 
-  // Save bookings
-  const saveBookings = (newBookings: Booking[]) => {
-    setBookings(newBookings);
+  // Save local bookings
+  const saveLocalBookings = (newBookings: Booking[]) => {
+    setLocalBookings(newBookings);
     try {
       localStorage.setItem('barber_bookings', JSON.stringify(newBookings));
     } catch (e) {
-      // Ignore errors (e.g. quota exceeded or security restrictions)
       console.warn("Could not save bookings to storage");
     }
   };
 
-  const handleBookingComplete = (bookingData: Omit<Booking, 'id' | 'status' | 'createdAt'>) => {
+  const handleBookingComplete = async (bookingData: Omit<Booking, 'id' | 'status' | 'createdAt'>) => {
     const newBooking: Booking = {
       ...bookingData,
       id: Math.random().toString(36).substr(2, 9),
       status: 'confirmed',
       createdAt: Date.now(),
     };
-    saveBookings([...bookings, newBooking]);
+
+    // 1. Optimistic UI Update (Local)
+    saveLocalBookings([...localBookings, newBooking]);
+    
+    // 2. Send to Google Sheets (Backend)
+    try {
+      // Get latest Telegram user data if available
+      const tgUser = getTelegramUser();
+      
+      const payload = {
+        ...newBooking,
+        tgUserId: tgUser?.id || '',
+        tgUsername: tgUser?.username || ''
+      };
+
+      await fetch(GOOGLE_SCRIPT_URL, {
+        method: 'POST',
+        mode: 'no-cors', // 'no-cors' is required for simple GAS web app requests
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+      });
+      
+      // Note: With 'no-cors', we can't read the response, but the request will succeed if network is fine.
+    } catch (e) {
+      console.error("Failed to sync with server", e);
+      // We don't rollback local state because offline-first is better for UX
+    }
+
     setIsBookingOpen(false);
     setPreSelectedBarberId(undefined);
     setPreSelectedServiceId(undefined);
@@ -60,10 +129,12 @@ const App: React.FC = () => {
   };
 
   const handleCancelBooking = (id: string) => {
-    const updated = bookings.map(b => 
+    // Currently only cancels locally. 
+    // For full sync, we would need a separate API endpoint to update status in Sheets.
+    const updated = localBookings.map(b => 
       b.id === id ? { ...b, status: 'cancelled' as const } : b
     );
-    saveBookings(updated);
+    saveLocalBookings(updated);
   };
 
   const handleStartBooking = (barberId?: string, serviceId?: string) => {
@@ -77,6 +148,9 @@ const App: React.FC = () => {
     setPreSelectedBarberId(undefined);
     setPreSelectedServiceId(undefined);
   };
+
+  // Combine local and server bookings for the wizard to know what is blocked
+  const allOccupiedBookings = [...localBookings, ...serverBookings];
 
   return (
     <div className="bg-zinc-950 text-zinc-100 font-sans h-[100dvh] max-w-md mx-auto relative overflow-hidden shadow-2xl flex flex-col">
@@ -107,7 +181,7 @@ const App: React.FC = () => {
               transition={{ duration: 0.2 }}
               className="absolute inset-0 overflow-y-auto no-scrollbar w-full h-full"
             >
-              <MyBookings bookings={bookings} onCancelBooking={handleCancelBooking} />
+              <MyBookings bookings={localBookings} onCancelBooking={handleCancelBooking} />
             </motion.div>
           )}
         </AnimatePresence>
@@ -126,7 +200,7 @@ const App: React.FC = () => {
             className="absolute inset-0 z-50 h-full w-full"
           >
             <BookingWizard 
-              bookings={bookings}
+              bookings={allOccupiedBookings}
               onComplete={handleBookingComplete} 
               onCancel={handleCloseBooking} 
               initialBarberId={preSelectedBarberId}

@@ -8,7 +8,7 @@ import { getTelegramUser, triggerHaptic } from '../utils/telegram';
 
 interface BookingWizardProps {
   bookings: Booking[];
-  onComplete: (booking: Omit<Booking, 'id' | 'status' | 'createdAt'>) => void;
+  onComplete: (booking: Omit<Booking, 'id' | 'status' | 'createdAt'>) => Promise<void> | void;
   onCancel: () => void;
   initialBarberId?: string;
   initialServiceId?: string;
@@ -91,6 +91,7 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({ bookings, onComple
   const [selectedServiceOffer, setSelectedServiceOffer] = useState<BarberServiceOffer | null>(null);
   const [selectedServiceDetails, setSelectedServiceDetails] = useState<Service | null>(null);
   const [mskTime, setMskTime] = useState(() => getMskTimeParts());
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Telegram User Data
   const tgUser = getTelegramUser();
@@ -341,16 +342,17 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({ bookings, onComple
     return false;
   };
 
-  const handleNext = () => {
+  const handleNext = async () => {
     triggerHaptic('impact', 'light');
     if (step === 4) {
+      setIsSubmitting(true);
       triggerHaptic('notification', 'success');
       let finalPrice = selectedServiceOffer!.price;
       if (selectedServiceOffer!.serviceId === PROMO_SERVICE_ID) {
         finalPrice = Math.floor(finalPrice * PROMO_DISCOUNT);
       }
 
-      onComplete({
+      await onComplete({
         barberId: selectedBarber!.id,
         serviceId: selectedServiceOffer!.serviceId,
         date: selectedDate.toISOString(),
@@ -360,6 +362,7 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({ bookings, onComple
         price: finalPrice,
         duration: selectedServiceOffer!.durationMinutes
       });
+      setIsSubmitting(false);
     } else {
       setStep(prev => prev + 1);
     }
@@ -501,7 +504,7 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({ bookings, onComple
   return (
     <div className="fixed inset-0 bg-zinc-950 z-50 flex flex-col h-full w-full">
       <div className="px-4 h-14 shrink-0 flex items-center justify-between border-b border-zinc-900 bg-zinc-950">
-        <button onClick={handleBack} className="p-2 -ml-2 text-zinc-400 hover:text-white">
+        <button onClick={handleBack} disabled={isSubmitting} className="p-2 -ml-2 text-zinc-400 hover:text-white disabled:opacity-50">
           <ChevronLeft size={24} />
         </button>
         <div className="text-sm font-bold uppercase tracking-wider text-zinc-500">
@@ -760,10 +763,15 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({ bookings, onComple
               <div className="fixed bottom-0 left-0 right-0 p-4 bg-zinc-950 border-t border-zinc-900 z-20">
                  <button
                    onClick={handleNext}
-                   disabled={!canProceed()}
-                   className="w-full py-4 bg-white text-black font-black uppercase tracking-widest rounded-none hover:bg-zinc-200 disabled:opacity-50 disabled:pointer-events-none active:scale-[0.98] transition-transform"
+                   disabled={!canProceed() || isSubmitting}
+                   className="w-full py-4 bg-white text-black font-black uppercase tracking-widest rounded-none hover:bg-zinc-200 disabled:opacity-50 disabled:pointer-events-none active:scale-[0.98] transition-transform flex items-center justify-center gap-2"
                  >
-                   Подтвердить запись
+                   {isSubmitting ? (
+                     <>
+                       <span className="animate-spin h-4 w-4 border-2 border-black border-t-transparent rounded-full"/>
+                       ОТПРАВКА...
+                     </>
+                   ) : 'ПОДТВЕРДИТЬ ЗАПИСЬ'}
                  </button>
               </div>
             </motion.div>
