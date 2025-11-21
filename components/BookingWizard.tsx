@@ -41,7 +41,6 @@ const getMskTimeParts = () => {
     const hour = getPart('hour');
     const minute = getPart('minute');
 
-    // If any part is invalid, return fallback immediately without throwing
     if (isNaN(year) || isNaN(month) || isNaN(day) || isNaN(hour) || isNaN(minute)) {
        return {
          year: now.getFullYear(),
@@ -162,32 +161,20 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({ bookings, userBook
     return selectedBarber.workDays.includes(selectedDate.getDay());
   }, [selectedBarber, selectedDate]);
 
-  // Check if a given ISO string date matches the currently selected Moscow date
-  // robustly, regardless of client timezone
   const isSameMskDay = (isoDate: string, selected: Date) => {
     try {
       const d = new Date(isoDate);
       if (isNaN(d.getTime())) return false;
-
-      // Convert booking date to Moscow Time parts
-      const parts = new Intl.DateTimeFormat('en-US', {
+      
+      const fmt = new Intl.DateTimeFormat('en-CA', {
         timeZone: 'Europe/Moscow',
-        day: 'numeric',
-        month: 'numeric',
-        year: 'numeric'
-      }).formatToParts(d);
-
-      const getPart = (type: string) => parseInt(parts.find(p => p.type === type)?.value || '0', 10);
-      const day = getPart('day');
-      const month = getPart('month') - 1; // 0-indexed
-      const year = getPart('year');
-
-      // Compare with selectedDate (which is already representing a Moscow day)
-      return day === selected.getDate() && 
-             month === selected.getMonth() && 
-             year === selected.getFullYear();
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit'
+      });
+      
+      return fmt.format(d) === fmt.format(selected);
     } catch (e) {
-      // Fallback for environments where Intl might fail
       const d = new Date(isoDate);
       return d.getDate() === selected.getDate() && 
              d.getMonth() === selected.getMonth() && 
@@ -195,7 +182,7 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({ bookings, userBook
     }
   };
 
-  // One Booking Per Day Check - Using ONLY userBookings (Critical Fix)
+  // One Booking Per Day Check - Using ONLY userBookings (Personal Limit)
   const hasExistingBookingOnDate = useMemo(() => {
     if (isNaN(selectedDate.getTime())) return false;
     return userBookings.some(b => {
@@ -239,7 +226,7 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({ bookings, userBook
     const occupiedTimes = new Set<string>();
 
     if (selectedBarber) {
-      // Availability Check - Using ALL bookings (server + local) to block time
+      // Availability Check - Using GLOBAL bookings to block time for everyone
       const dayBookings = bookings.filter(b => {
         if (b.status !== 'confirmed') return false;
         if (b.barberId !== selectedBarber.id) return false;
@@ -308,12 +295,11 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({ bookings, userBook
     return slots;
   }, [selectedDate, mskTime, bookings, selectedBarber, selectedServiceOffer]);
 
-  // Group slots by time of day
   const groupedSlots = useMemo(() => {
     const groups = {
-      morning: [] as TimeSlot[], // 10:00 - 12:00
-      day: [] as TimeSlot[],     // 12:00 - 17:00
-      evening: [] as TimeSlot[]  // 17:00 - 21:00
+      morning: [] as TimeSlot[], 
+      day: [] as TimeSlot[],     
+      evening: [] as TimeSlot[]  
     };
 
     timeSlots.forEach(slot => {
