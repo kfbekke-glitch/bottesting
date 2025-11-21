@@ -9,7 +9,7 @@ import { AppView, Booking } from './types';
 import { AnimatePresence, motion } from 'framer-motion';
 import { initTelegramApp, getTelegramUser } from './utils/telegram';
 
-const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzlt51lxw4cj4d6jypDa1P-18pFL5NAY9ih-3Dy6J52zbNqoicigAh7z53wVSyxoX5_/exec';
+const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzvMAGT0_-mbzx4dEwEeHuitBPdxlYCJftpuAdMFArGOQZ9S5Fy5viI5B9a7ZHSHz8J/exec';
 
 const App: React.FC = () => {
   const [currentView, setCurrentView] = useState<AppView>(AppView.HOME);
@@ -28,17 +28,20 @@ const App: React.FC = () => {
   useEffect(() => {
     initTelegramApp();
     
+    let currentLocalBookings: Booking[] = [];
+
     // 1. Load Local History
     try {
       const saved = localStorage.getItem('barber_bookings');
       if (saved) {
-        setLocalBookings(JSON.parse(saved));
+        currentLocalBookings = JSON.parse(saved);
+        setLocalBookings(currentLocalBookings);
       }
     } catch (e) {
       console.warn("Could not load bookings from storage");
     }
 
-    // 2. Fetch Occupied Slots from Server
+    // 2. Fetch Occupied Slots from Server AND Sync Status
     const fetchServerBookings = async () => {
       try {
         const response = await fetch(GOOGLE_SCRIPT_URL, {
@@ -48,11 +51,10 @@ const App: React.FC = () => {
         if (response.ok) {
           const data = await response.json();
           if (Array.isArray(data)) {
-            // Normalize server data to Booking interface
-            // Server sends minimal data: {date, timeSlot, barberId}
-            // We add default values for missing fields to satisfy the type
-            const normalized: Booking[] = data.map((item: any, index: number) => ({
-              id: `server_${index}`,
+            // a) Update Server Bookings (for blocking slots)
+            const normalizedServerBookings: Booking[] = data.map((item: any, index: number) => ({
+              id: `server_${index}`, // Temporary ID for display blocking
+              realId: item.id, // Keep track of real ID if script sends it, or match by content
               barberId: item.barberId,
               serviceId: 'unknown',
               date: item.date,
@@ -60,11 +62,44 @@ const App: React.FC = () => {
               clientName: 'Occupied',
               clientPhone: '',
               price: 0,
-              duration: 45, // Default duration for blocking if missing
+              duration: 45, 
               status: 'confirmed',
               createdAt: 0
             }));
-            setServerBookings(normalized);
+            setServerBookings(normalizedServerBookings);
+
+            // b) SYNC LOGIC: Check if local bookings are still valid on server
+            // We need the raw server data to check IDs or slots
+            // Since the simple GET endpoint might only return active bookings,
+            // If a local booking ID is NOT in the returned data (and it should be), it means Admin deleted it.
+            // NOTE: This requires the GET endpoint to return IDs or unique keys. 
+            // Assuming our GET returns simple objects {date, timeSlot, barberId}, we match by that.
+            
+            let hasChanges = false;
+            const updatedLocalBookings = currentLocalBookings.map(localBooking => {
+              if (localBooking.status === 'cancelled') return localBooking;
+
+              // Check if this booking exists in the active server list
+              // We match by Barber + Date + Time (since IDs might differ if we don't sync them perfectly)
+              const existsOnServer = data.some((serverBooking: any) => {
+                return serverBooking.barberId === localBooking.barberId &&
+                       new Date(serverBooking.date).getTime() === new Date(localBooking.date).getTime() &&
+                       serverBooking.timeSlot === localBooking.timeSlot;
+              });
+
+              // If it was confirmed locally, but is NOT in the server list anymore -> It was deleted/cancelled by Admin
+              if (!existsOnServer) {
+                hasChanges = true;
+                return { ...localBooking, status: 'cancelled' as const };
+              }
+              
+              return localBooking;
+            });
+
+            if (hasChanges) {
+              setLocalBookings(updatedLocalBookings);
+              localStorage.setItem('barber_bookings', JSON.stringify(updatedLocalBookings));
+            }
           }
         }
       } catch (e) {
@@ -98,7 +133,6 @@ const App: React.FC = () => {
     
     // 2. Send to Google Sheets (Backend)
     try {
-      // Get latest Telegram user data if available
       const tgUser = getTelegramUser();
       
       const payload = {
@@ -109,17 +143,14 @@ const App: React.FC = () => {
 
       await fetch(GOOGLE_SCRIPT_URL, {
         method: 'POST',
-        mode: 'no-cors', // 'no-cors' is required for simple GAS web app requests
+        mode: 'no-cors', 
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify(payload),
       });
-      
-      // Note: With 'no-cors', we can't read the response, but the request will succeed if network is fine.
     } catch (e) {
       console.error("Failed to sync with server", e);
-      // We don't rollback local state because offline-first is better for UX
     }
 
     setIsBookingOpen(false);
@@ -128,13 +159,31 @@ const App: React.FC = () => {
     setCurrentView(AppView.MY_BOOKINGS);
   };
 
-  const handleCancelBooking = (id: string) => {
-    // Currently only cancels locally. 
-    // For full sync, we would need a separate API endpoint to update status in Sheets.
+  const handleCancelBooking = async (id: string) => {
+    // 1. Local Update
     const updated = localBookings.map(b => 
       b.id === id ? { ...b, status: 'cancelled' as const } : b
     );
     saveLocalBookings(updated);
+
+    // 2. Server Update (Send cancellation event)
+    try {
+      const bookingToCancel = localBookings.find(b => b.id === id);
+      if (bookingToCancel) {
+         await fetch(GOOGLE_SCRIPT_URL, {
+          method: 'POST',
+          mode: 'no-cors',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ 
+            ...bookingToCancel, 
+            id: bookingToCancel.id,
+            status: 'cancelled' 
+          })
+        });
+      }
+    } catch (e) {
+      console.error("Failed to sync cancellation", e);
+    }
   };
 
   const handleStartBooking = (barberId?: string, serviceId?: string) => {

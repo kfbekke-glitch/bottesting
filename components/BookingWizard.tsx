@@ -162,7 +162,7 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({ bookings, userBook
     return selectedBarber.workDays.includes(selectedDate.getDay());
   }, [selectedBarber, selectedDate]);
 
-  // One Booking Per Day Check - Using ONLY userBookings
+  // One Booking Per Day Check - Using ONLY userBookings (Critical Fix)
   const hasExistingBookingOnDate = useMemo(() => {
     if (isNaN(selectedDate.getTime())) return false;
     return userBookings.some(b => {
