@@ -200,7 +200,8 @@ const App: React.FC = () => {
             className="absolute inset-0 z-50 h-full w-full"
           >
             <BookingWizard 
-              bookings={allOccupiedBookings}
+              bookings={allOccupiedBookings} // Pass ALL bookings for slot blocking
+              userBookings={localBookings}   // Pass ONLY user bookings for "One per day" check
               onComplete={handleBookingComplete} 
               onCancel={handleCloseBooking} 
               initialBarberId={preSelectedBarberId}

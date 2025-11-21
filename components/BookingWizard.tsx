@@ -7,7 +7,8 @@ import { Barber, Service, Booking, TimeSlot, BarberServiceOffer } from '../types
 import { getTelegramUser, triggerHaptic } from '../utils/telegram';
 
 interface BookingWizardProps {
-  bookings: Booking[];
+  bookings: Booking[]; // All occupied slots (local + server)
+  userBookings: Booking[]; // Current user's specific bookings
   onComplete: (booking: Omit<Booking, 'id' | 'status' | 'createdAt'>) => Promise<void> | void;
   onCancel: () => void;
   initialBarberId?: string;
@@ -79,7 +80,7 @@ const addMinutesToTime = (time: string, minutesToAdd: number) => {
 const PROMO_SERVICE_ID = 's5';
 const PROMO_DISCOUNT = 0.85;
 
-export const BookingWizard: React.FC<BookingWizardProps> = ({ bookings, onComplete, onCancel, initialBarberId, initialServiceId }) => {
+export const BookingWizard: React.FC<BookingWizardProps> = ({ bookings, userBookings, onComplete, onCancel, initialBarberId, initialServiceId }) => {
   const [selectedBarber, setSelectedBarber] = useState<Barber | null>(() => {
     if (initialBarberId) {
       return BARBERS.find(b => b.id === initialBarberId) || null;
@@ -161,10 +162,10 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({ bookings, onComple
     return selectedBarber.workDays.includes(selectedDate.getDay());
   }, [selectedBarber, selectedDate]);
 
-  // One Booking Per Day Check
+  // One Booking Per Day Check - Using ONLY userBookings
   const hasExistingBookingOnDate = useMemo(() => {
     if (isNaN(selectedDate.getTime())) return false;
-    return bookings.some(b => {
+    return userBookings.some(b => {
       if (b.status !== 'confirmed') return false;
       const bDate = new Date(b.date);
       if (isNaN(bDate.getTime())) return false;
@@ -172,7 +173,7 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({ bookings, onComple
              bDate.getMonth() === selectedDate.getMonth() &&
              bDate.getFullYear() === selectedDate.getFullYear();
     });
-  }, [bookings, selectedDate]);
+  }, [userBookings, selectedDate]);
 
   const timeSlots = useMemo(() => {
     const slots: TimeSlot[] = [];
@@ -209,6 +210,7 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({ bookings, onComple
     const occupiedTimes = new Set<string>();
 
     if (selectedBarber) {
+      // Availability Check - Using ALL bookings (server + local)
       const dayBookings = bookings.filter(b => {
         if (b.status !== 'confirmed') return false;
         if (b.barberId !== selectedBarber.id) return false;
