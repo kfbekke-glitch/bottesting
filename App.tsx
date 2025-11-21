@@ -7,6 +7,7 @@ import { BookingWizard } from './components/BookingWizard';
 import { MyBookings } from './components/MyBookings';
 import { AppView, Booking } from './types';
 import { AnimatePresence, motion } from 'framer-motion';
+import { initTelegramApp } from './utils/telegram';
 
 const App: React.FC = () => {
   const [currentView, setCurrentView] = useState<AppView>(AppView.HOME);
@@ -18,8 +19,10 @@ const App: React.FC = () => {
   
   const [bookings, setBookings] = useState<Booking[]>([]);
 
-  // Load bookings from local storage on mount
+  // Load bookings from local storage on mount and init Telegram
   useEffect(() => {
+    initTelegramApp();
+    
     try {
       const saved = localStorage.getItem('barber_bookings');
       if (saved) {

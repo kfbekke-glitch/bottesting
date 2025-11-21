@@ -1,9 +1,10 @@
 
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { motion } from 'framer-motion';
-import { ChevronLeft, Calendar as CalendarIcon, User, Scissors, Clock, Sun, Sunset, Moon, PhoneCall } from 'lucide-react';
+import { ChevronLeft, Calendar as CalendarIcon, User, Scissors, Clock, Sun, Moon, PhoneCall } from 'lucide-react';
 import { BARBERS, SERVICES } from '../constants';
 import { Barber, Service, Booking, TimeSlot, BarberServiceOffer } from '../types';
+import { getTelegramUser, triggerHaptic } from '../utils/telegram';
 
 interface BookingWizardProps {
   bookings: Booking[];
@@ -91,9 +92,19 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({ bookings, onComple
   const [selectedServiceDetails, setSelectedServiceDetails] = useState<Service | null>(null);
   const [mskTime, setMskTime] = useState(() => getMskTimeParts());
 
+  // Telegram User Data
+  const tgUser = getTelegramUser();
+
   // Form State
-  const [name, setName] = useState('');
+  const [name, setName] = useState(tgUser?.first_name || '');
   const [phone, setPhone] = useState('');
+
+  // Effect to update name if Telegram data loads late
+  useEffect(() => {
+    if (!name && tgUser?.first_name) {
+      setName(tgUser.first_name);
+    }
+  }, [tgUser]);
 
   const dates = useMemo(() => {
     const { year, month, day } = getMskTimeParts(); 
@@ -169,10 +180,6 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({ bookings, onComple
     if (selectedBarber && !selectedBarber.workDays.includes(selectedDate.getDay())) {
       return slots;
     }
-
-    // Note: We allow calculation of slots even if user has booking, 
-    // but we will hide them in UI and show the "Contact Admin" message instead.
-    // This keeps logic clean.
 
     let slotsNeeded = 1;
     if (selectedServiceOffer) {
@@ -335,7 +342,9 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({ bookings, onComple
   };
 
   const handleNext = () => {
+    triggerHaptic('impact', 'light');
     if (step === 4) {
+      triggerHaptic('notification', 'success');
       let finalPrice = selectedServiceOffer!.price;
       if (selectedServiceOffer!.serviceId === PROMO_SERVICE_ID) {
         finalPrice = Math.floor(finalPrice * PROMO_DISCOUNT);
@@ -357,6 +366,7 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({ bookings, onComple
   };
 
   const handleBack = () => {
+    triggerHaptic('impact', 'light');
     if (step > 1) {
       if (step === 2 && initialBarberId) {
         onCancel();
@@ -375,6 +385,7 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({ bookings, onComple
   };
 
   const handleBarberSelect = (barber: Barber) => {
+    triggerHaptic('selection');
     setSelectedBarber(barber);
     
     if (initialServiceId) {
@@ -395,6 +406,7 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({ bookings, onComple
   }
 
   const handleServiceSelect = (offer: BarberServiceOffer, details: Service) => {
+    triggerHaptic('selection');
     setSelectedServiceOffer(offer);
     setSelectedServiceDetails(details);
     setTimeout(() => setStep(3), 150);
@@ -426,13 +438,18 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({ bookings, onComple
   };
 
   const handleDateClick = (date: Date, disabled: boolean) => {
-    if (disabled) return;
+    if (disabled) {
+      triggerHaptic('notification', 'error');
+      return;
+    }
     if (dragDist.current < 5) {
+      triggerHaptic('selection');
       setSelectedDate(date);
     }
   };
 
   const handleTimeSelect = (slot: TimeSlot) => {
+     triggerHaptic('selection');
      setSelectedTime(slot);
   };
 
@@ -683,7 +700,7 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({ bookings, onComple
                     value={name}
                     onChange={(e) => setName(e.target.value)}
                     className="w-full bg-zinc-900 border-none rounded-xl p-4 text-white text-lg focus:ring-2 focus:ring-amber-600 placeholder-zinc-700"
-                    placeholder="Иван"
+                    placeholder={tgUser ? "Имя из Telegram" : "Иван"}
                   />
                 </div>
                 <div>
