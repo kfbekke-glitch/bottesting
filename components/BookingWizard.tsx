@@ -1,4 +1,5 @@
 
+
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { motion } from 'framer-motion';
 import { ChevronLeft, Calendar as CalendarIcon, User, Scissors, Clock, Sun, Moon, PhoneCall } from 'lucide-react';
@@ -85,8 +86,6 @@ const getDateKey = (date: Date | string): string => {
     const d = typeof date === 'string' ? new Date(date) : date;
     if (isNaN(d.getTime())) return '';
 
-    // To avoid timezone hell, we construct a UTC date from the "local" parts
-    // and then get the ISO string. This is consistent.
     const year = d.getFullYear();
     const month = String(d.getMonth() + 1).padStart(2, '0');
     const day = String(d.getDate()).padStart(2, '0');
@@ -190,9 +189,9 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({ bookings, userBook
 
   const timeSlots = useMemo(() => {
     const slots: TimeSlot[] = [];
-    if (isNaN(selectedDate.getTime())) return slots;
+    if (isNaN(selectedDate.getTime()) || !selectedBarber) return slots;
     
-    if (selectedBarber && !selectedBarber.workDays.includes(selectedDate.getDay())) {
+    if (!selectedBarber.workDays.includes(selectedDate.getDay())) {
       return slots;
     }
 
@@ -222,28 +221,27 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({ bookings, userBook
 
     const occupiedTimes = new Set<string>();
 
-    if (selectedBarber) {
-      const dayBookings = bookings.filter(b => {
-        if (b.status !== 'confirmed') return false;
-        if (b.barberId !== selectedBarber.id) return false;
-        return getDateKey(b.date) === selectedKey;
-      });
+    // FIX: Filter bookings by the selected barber to prevent global time slot blocking.
+    const dayBookings = bookings.filter(b => {
+      if (b.status !== 'confirmed') return false;
+      if (b.barberId !== selectedBarber.id) return false;
+      return getDateKey(b.date) === selectedKey;
+    });
 
-      dayBookings.forEach(booking => {
-        const duration = booking.duration || 45;
-        let bookingSlotsCount = 1;
-        if (duration <= 35) bookingSlotsCount = 1;
-        else if (duration <= 65) bookingSlotsCount = 2;
-        else if (duration <= 95) bookingSlotsCount = 3;
-        else bookingSlotsCount = Math.ceil(duration / 30);
+    dayBookings.forEach(booking => {
+      const duration = booking.duration || 45;
+      let bookingSlotsCount = 1;
+      if (duration <= 35) bookingSlotsCount = 1;
+      else if (duration <= 65) bookingSlotsCount = 2;
+      else if (duration <= 95) bookingSlotsCount = 3;
+      else bookingSlotsCount = Math.ceil(duration / 30);
 
-        let checkTime = booking.timeSlot;
-        for (let i = 0; i < bookingSlotsCount; i++) {
-          occupiedTimes.add(checkTime);
-          checkTime = addMinutesToTime(checkTime, 30);
-        }
-      });
-    }
+      let checkTime = booking.timeSlot;
+      for (let i = 0; i < bookingSlotsCount; i++) {
+        occupiedTimes.add(checkTime);
+        checkTime = addMinutesToTime(checkTime, 30);
+      }
+    });
 
     allDayIntervals.forEach(interval => {
       const intervalMins = timeToMinutes(interval.time);
@@ -467,7 +465,7 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({ bookings, userBook
 
   useEffect(() => {
     setSelectedTime(null);
-  }, [selectedDate]);
+  }, [selectedDate, selectedBarber]);
 
   const getAvailableServices = () => {
     if (!selectedBarber) return [];
