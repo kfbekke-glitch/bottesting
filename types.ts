@@ -27,6 +27,7 @@ export interface TimeSlot {
   id: string;
   time: string;
   available: boolean;
+  label?: string; // 'ОБЕД', 'УШЕЛ', etc.
 }
 
 export interface Booking {

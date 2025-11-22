@@ -185,7 +185,10 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({ bookings, userBook
     const todayKey = getDateKey(new Date(mskTime.year, mskTime.month, mskTime.day));
     const isToday = selectedKey === todayKey;
     const currentMskMinutes = mskTime.hour * 60 + mskTime.minute;
+    
     const occupiedTimes = new Set<string>();
+    // Map to store special labels for blocks (Lunch, Early leave)
+    const slotLabels = new Map<string, string>();
 
     const dayBookings = bookings.filter(b => {
       if (b.status !== 'confirmed') return false;
@@ -207,11 +210,18 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({ bookings, userBook
           if (match) timeStr = `${match[1]}:${match[2]}`;
       }
 
+      // Identify block label
+      let blockLabel = '';
+      if (booking.serviceId === 'block_lunch') blockLabel = 'ОБЕД';
+      else if (booking.serviceId === 'block_early') blockLabel = 'УШЕЛ';
+      else if (booking.serviceId === 'block_day_off') blockLabel = 'ВЫХ';
+
       const [bh, bm] = timeStr.split(':').map(Number);
       if (!isNaN(bh) && !isNaN(bm)) {
          let checkTime = `${bh.toString().padStart(2, '0')}:${bm.toString().padStart(2, '0')}`;
          for (let i = 0; i < bookingSlotsCount; i++) {
            occupiedTimes.add(checkTime);
+           if (blockLabel) slotLabels.set(checkTime, blockLabel);
            checkTime = addMinutesToTime(checkTime, 30);
          }
       }
@@ -225,8 +235,15 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({ bookings, userBook
 
     for (let i = 0; i < allDayIntervals.length; i++) {
       const startSlot = allDayIntervals[i];
+      const specialLabel = slotLabels.get(startSlot.time);
+
       if (startSlot.isBlocked) {
-        slots.push({ id: `t-${selectedKey}-${startSlot.time}`, time: startSlot.time, available: false });
+        slots.push({ 
+          id: `t-${selectedKey}-${startSlot.time}`, 
+          time: startSlot.time, 
+          available: false,
+          label: specialLabel // Pass the label (e.g. 'ОБЕД')
+        });
         continue;
       }
       let canFit = true;
@@ -237,7 +254,12 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({ bookings, userBook
           break;
         }
       }
-      slots.push({ id: `t-${selectedKey}-${startSlot.time}`, time: startSlot.time, available: canFit });
+      slots.push({ 
+        id: `t-${selectedKey}-${startSlot.time}`, 
+        time: startSlot.time, 
+        available: canFit,
+        label: specialLabel 
+      });
     }
 
     return slots;
@@ -424,8 +446,15 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({ bookings, userBook
                     : 'bg-zinc-800 text-white hover:bg-zinc-700'}
               `}
             >
-              <span className={!slot.available ? 'opacity-30 scale-90 block' : ''}>{slot.time}</span>
-              {!slot.available && (
+              {slot.label ? (
+                 <span className={`text-[10px] font-black uppercase tracking-wide ${slot.label === 'ОБЕД' ? 'text-amber-700/70' : 'text-red-900/70'}`}>
+                   {slot.label}
+                 </span>
+              ) : (
+                <span className={!slot.available ? 'opacity-30 scale-90 block' : ''}>{slot.time}</span>
+              )}
+              
+              {!slot.available && !slot.label && (
                  <div className="absolute top-0.5 right-0.5">
                     <X size={10} strokeWidth={3} className="text-red-600 opacity-60" />
                  </div>
