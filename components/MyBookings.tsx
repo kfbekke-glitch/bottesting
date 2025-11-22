@@ -72,6 +72,17 @@ export const MyBookings: React.FC<MyBookingsProps> = ({ bookings, onCancelBookin
     }
   };
 
+  const getDayOfWeek = (dateStr: string) => {
+    try {
+      const date = new Date(dateStr);
+      if (isNaN(date.getTime())) return '';
+      const day = new Intl.DateTimeFormat('ru-RU', { weekday: 'long' }).format(date);
+      return day.charAt(0).toUpperCase() + day.slice(1);
+    } catch (e) {
+      return '';
+    }
+  };
+
   const sortedBookings = [...bookings].sort((a, b) => {
     try {
       const [hA, mA] = cleanTimeDisplay(a.timeSlot).split(':').map(Number);
@@ -114,6 +125,7 @@ export const MyBookings: React.FC<MyBookingsProps> = ({ bookings, onCancelBookin
       {sortedBookings.map((booking) => {
         const { barberName, serviceName, barberImage, price } = getBookingDetails(booking);
         const displayTime = cleanTimeDisplay(booking.timeSlot);
+        const dayOfWeek = getDayOfWeek(booking.date);
 
         return (
           <div 
@@ -139,16 +151,19 @@ export const MyBookings: React.FC<MyBookingsProps> = ({ bookings, onCancelBookin
             <div className="bg-zinc-950 rounded-xl p-3 flex justify-between items-center text-sm mb-4 border border-zinc-800/50">
                <div className="flex items-center gap-2 text-white font-mono">
                  <Calendar size={14} className="text-zinc-500" />
-                 {formatDate(booking.date)}
+                 <div className="flex flex-col leading-none">
+                    <span>{formatDate(booking.date)}</span>
+                    <span className="text-[10px] text-zinc-500 uppercase font-bold mt-0.5">{dayOfWeek}</span>
+                 </div>
                </div>
-               <div className="w-px h-4 bg-zinc-800" />
+               <div className="w-px h-8 bg-zinc-800" />
                <div className="flex items-center gap-2 text-white font-mono">
                  <Clock size={14} className="text-zinc-500" />
                  {displayTime}
                </div>
-               <div className="w-px h-4 bg-zinc-800" />
+               <div className="w-px h-8 bg-zinc-800" />
                <div className="text-amber-600 font-mono font-bold">
-                  от {price}₽
+                  {price}₽
                </div>
             </div>
 

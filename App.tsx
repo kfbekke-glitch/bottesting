@@ -246,6 +246,39 @@ const App: React.FC = () => {
     setPreSelectedServiceId(undefined);
     setCurrentView(AppView.MY_BOOKINGS);
   };
+  
+  // New handler for Admin creation
+  const handleAdminCreateBooking = async (bookingData: Omit<Booking, 'id' | 'status' | 'createdAt'>) => {
+    if (isOffline) {
+      setShowOfflineAlert(true);
+      return;
+    }
+
+    // Admin bookings do not have tgUserId linked to the admin
+    const newBooking: Booking = {
+      ...bookingData,
+      id: `admin_${Math.random().toString(36).substr(2, 9)}`,
+      status: 'confirmed',
+      createdAt: Date.now(),
+    };
+
+    // Update server list optimistically
+    setServerBookings(prev => [...prev, newBooking]);
+
+    try {
+      await fetch(GOOGLE_SCRIPT_URL, {
+        method: 'POST',
+        mode: 'no-cors', 
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify(newBooking),
+      });
+      setTimeout(fetchServerBookings, 1000);
+    } catch (e) {
+      console.error("Failed to sync admin booking", e);
+      setIsOffline(true);
+      setShowOfflineAlert(true);
+    }
+  };
 
   const handleCancelBooking = async (id: string) => {
     if (isOffline) {
@@ -419,6 +452,7 @@ const App: React.FC = () => {
                 bookings={serverBookings}
                 onDeleteBooking={handleCancelBooking}
                 onUpdatePrice={handleUpdatePrice}
+                onCreateBooking={handleAdminCreateBooking}
               />
             </motion.div>
           )}

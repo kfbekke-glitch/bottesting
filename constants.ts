@@ -40,6 +40,13 @@ export const SERVICES: Service[] = [
   },
 ];
 
+export const BLOCK_TYPES = {
+  LUNCH: { id: 'block_lunch', name: 'ОБЕД', duration: 60 },
+  DAY_OFF: { id: 'block_day_off', name: 'ВЫХОДНОЙ', duration: 660 }, // 11 hours (10:00 - 21:00)
+  EARLY: { id: 'block_early', name: 'УШЕЛ РАНЬШЕ', duration: 0 }, // Calc dynamically
+  CUSTOM: { id: 'block_custom', name: 'ТЕХ. ПЕРЕРЫВ', duration: 30 }
+};
+
 export const BARBERS: Barber[] = [
   {
     id: 'b1',
