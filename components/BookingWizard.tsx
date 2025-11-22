@@ -2,7 +2,7 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { motion } from 'framer-motion';
 import { ChevronLeft, Calendar as CalendarIcon, User, Scissors, Clock, Sun, Moon, PhoneCall, X, WifiOff } from 'lucide-react';
-import { BARBERS, SERVICES } from '../constants';
+import { BARBERS, SERVICES, BLOCK_TYPES } from '../constants';
 import { Barber, Service, Booking, TimeSlot, BarberServiceOffer } from '../types';
 import { getTelegramUser, triggerHaptic } from '../utils/telegram';
 
@@ -141,10 +141,33 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({ bookings, userBook
     return () => clearInterval(timer);
   }, []);
 
+  // Calculate which dates are marked as "Day Off" blocks by Admin
+  const dayOffDates = useMemo(() => {
+    const set = new Set<string>();
+    if (!selectedBarber) return set;
+    bookings.forEach(b => {
+      if (b.status === 'confirmed' && 
+          String(b.barberId) === String(selectedBarber.id) && 
+          b.serviceId === BLOCK_TYPES.DAY_OFF.id) {
+        set.add(b.date);
+      }
+    });
+    return set;
+  }, [bookings, selectedBarber]);
+
   const isWorkingDay = useMemo(() => {
     if (!selectedBarber || isNaN(selectedDate.getTime())) return true;
-    return selectedBarber.workDays.includes(selectedDate.getDay());
-  }, [selectedBarber, selectedDate]);
+    
+    // Check standard schedule
+    const inSchedule = selectedBarber.workDays.includes(selectedDate.getDay());
+    if (!inSchedule) return false;
+
+    // Check if explicitly set as Day Off via block
+    const dateKey = getDateKey(selectedDate);
+    if (dayOffDates.has(dateKey)) return false;
+
+    return true;
+  }, [selectedBarber, selectedDate, dayOffDates]);
   
   const hasExistingBookingOnDate = useMemo(() => {
     if (isNaN(selectedDate.getTime())) return false;
@@ -159,7 +182,8 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({ bookings, userBook
     const slots: TimeSlot[] = [];
     if (isNaN(selectedDate.getTime()) || !selectedBarber) return slots;
     
-    if (!selectedBarber.workDays.includes(selectedDate.getDay())) return slots;
+    // Optimization: If it's not a working day (including Day Off blocks), don't calculate slots
+    if (!isWorkingDay) return slots;
 
     let slotsNeeded = 1;
     if (selectedServiceOffer) {
@@ -263,7 +287,7 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({ bookings, userBook
     }
 
     return slots;
-  }, [selectedDate, mskTime, bookings, selectedBarber, selectedServiceOffer]);
+  }, [selectedDate, mskTime, bookings, selectedBarber, selectedServiceOffer, isWorkingDay]);
 
   const groupedSlots = useMemo(() => {
     const groups = { morning: [] as TimeSlot[], day: [] as TimeSlot[], evening: [] as TimeSlot[] };
@@ -603,7 +627,13 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({ bookings, userBook
               >
                 {dates.map((date) => {
                    const isSelected = date.getTime() === selectedDate.getTime();
-                   const isWorkDay = selectedBarber ? selectedBarber.workDays.includes(date.getDay()) : true;
+                   const dateKey = getDateKey(date);
+                   const isBlockedOff = dayOffDates.has(dateKey);
+                   const isScheduleDay = selectedBarber ? selectedBarber.workDays.includes(date.getDay()) : true;
+                   
+                   // A day is a "Work Day" if it's in the schedule AND NOT blocked by admin as Day Off
+                   const isWorkDay = isScheduleDay && !isBlockedOff;
+
                    return (
                      <button
                        key={date.getTime()}
