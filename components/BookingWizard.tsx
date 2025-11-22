@@ -79,6 +79,24 @@ const addMinutesToTime = (time: string, minutesToAdd: number) => {
 const PROMO_SERVICE_ID = 's5';
 const PROMO_DISCOUNT = 0.85;
 
+// SIMPLIFIED AND ROBUST DATE KEY
+const getDateKey = (date: Date | string): string => {
+  try {
+    const d = typeof date === 'string' ? new Date(date) : date;
+    if (isNaN(d.getTime())) return '';
+
+    // To avoid timezone hell, we construct a UTC date from the "local" parts
+    // and then get the ISO string. This is consistent.
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  } catch (e) {
+    return '';
+  }
+};
+
+
 export const BookingWizard: React.FC<BookingWizardProps> = ({ bookings, userBookings, onComplete, onCancel, initialBarberId, initialServiceId }) => {
   const [selectedBarber, setSelectedBarber] = useState<Barber | null>(() => {
     if (initialBarberId) {
@@ -140,7 +158,6 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({ bookings, userBook
     if (initialServiceId) {
       list = BARBERS.filter(b => b.services.some(s => s.serviceId === initialServiceId));
     }
-    // Sort by Rating Descending
     return [...list].sort((a, b) => b.rating - a.rating);
   }, [initialServiceId]);
 
@@ -160,34 +177,14 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({ bookings, userBook
     if (!selectedBarber || isNaN(selectedDate.getTime())) return true;
     return selectedBarber.workDays.includes(selectedDate.getDay());
   }, [selectedBarber, selectedDate]);
-
-  const isSameMskDay = (isoDate: string, selected: Date) => {
-    try {
-      const d = new Date(isoDate);
-      if (isNaN(d.getTime())) return false;
-      
-      const fmt = new Intl.DateTimeFormat('en-CA', {
-        timeZone: 'Europe/Moscow',
-        year: 'numeric',
-        month: '2-digit',
-        day: '2-digit'
-      });
-      
-      return fmt.format(d) === fmt.format(selected);
-    } catch (e) {
-      const d = new Date(isoDate);
-      return d.getDate() === selected.getDate() && 
-             d.getMonth() === selected.getMonth() && 
-             d.getFullYear() === selected.getFullYear();
-    }
-  };
-
-  // One Booking Per Day Check - Using ONLY userBookings (Personal Limit)
+  
   const hasExistingBookingOnDate = useMemo(() => {
     if (isNaN(selectedDate.getTime())) return false;
+    const selectedKey = getDateKey(selectedDate);
+    
     return userBookings.some(b => {
       if (b.status !== 'confirmed') return false;
-      return isSameMskDay(b.date, selectedDate);
+      return getDateKey(b.date) === selectedKey;
     });
   }, [userBookings, selectedDate]);
 
@@ -218,19 +215,18 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({ bookings, userBook
       });
     }
 
-    const isToday = selectedDate.getDate() === mskTime.day && 
-                    selectedDate.getMonth() === mskTime.month &&
-                    selectedDate.getFullYear() === mskTime.year;
+    const selectedKey = getDateKey(selectedDate);
+    const todayKey = getDateKey(new Date(mskTime.year, mskTime.month, mskTime.day));
+    const isToday = selectedKey === todayKey;
     const currentMskMinutes = mskTime.hour * 60 + mskTime.minute;
 
     const occupiedTimes = new Set<string>();
 
     if (selectedBarber) {
-      // Availability Check - Using GLOBAL bookings to block time for everyone
       const dayBookings = bookings.filter(b => {
         if (b.status !== 'confirmed') return false;
         if (b.barberId !== selectedBarber.id) return false;
-        return isSameMskDay(b.date, selectedDate);
+        return getDateKey(b.date) === selectedKey;
       });
 
       dayBookings.forEach(booking => {
@@ -265,7 +261,7 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({ bookings, userBook
       
       if (startSlot.isBlocked) {
         slots.push({
-          id: `t-${selectedDate.getDate()}-${startSlot.time}`,
+          id: `t-${selectedKey}-${startSlot.time}`,
           time: startSlot.time,
           available: false
         });
@@ -286,7 +282,7 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({ bookings, userBook
       }
 
       slots.push({
-        id: `t-${selectedDate.getDate()}-${startSlot.time}`,
+        id: `t-${selectedKey}-${startSlot.time}`,
         time: startSlot.time,
         available: canFit
       });
