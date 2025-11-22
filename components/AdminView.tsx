@@ -2,7 +2,7 @@
 import React, { useMemo, useState, useEffect } from 'react';
 import { Booking, Barber, Service, TimeSlot } from '../types';
 import { BARBERS, SERVICES, BLOCK_TYPES } from '../constants';
-import { Shield, DollarSign, Users, Calendar, Clock, Trash2, Filter, CheckCircle2, Phone, ChevronLeft, ChevronRight, Edit2, Plus, X, User, Scissors, Coffee, Ban, DoorOpen } from 'lucide-react';
+import { Shield, DollarSign, Users, Calendar, Clock, Trash2, Filter, CheckCircle2, Phone, ChevronLeft, ChevronRight, Edit2, Plus, X, User, Scissors, Coffee, Ban, DoorOpen, Hourglass, Loader2, BarChart3 } from 'lucide-react';
 import { Modal } from './ui/Modal';
 import { Button } from './ui/Button';
 
@@ -36,29 +36,60 @@ const addMinutesToTime = (time: string, minutesToAdd: number) => {
   return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
 };
 
+type BookingStatus = 'WAITING' | 'IN_PROGRESS' | 'DONE';
 
-// Helper to check if booking time has passed
-const isBookingCompleted = (dateStr: string, timeStr: string): boolean => {
+const getBookingStatus = (booking: Booking): BookingStatus => {
   try {
     const now = new Date();
-    // Simple string comparison works well for ISO YYYY-MM-DD
-    const todayStr = now.toISOString().split('T')[0];
     
-    if (dateStr < todayStr) return true;
-    if (dateStr > todayStr) return false;
+    // Parse Date (YYYY-MM-DD)
+    const [year, month, day] = booking.date.split('-').map(Number);
     
-    // If today, check time
-    const [h, m] = cleanTime(timeStr).split(':').map(Number);
-    const nowH = now.getHours();
-    const nowM = now.getMinutes();
+    // Parse Time (HH:MM)
+    const [hours, minutes] = cleanTime(booking.timeSlot).split(':').map(Number);
     
-    if (h < nowH) return true;
-    if (h === nowH && m <= nowM) return true;
-    
-    return false;
+    if (isNaN(year) || isNaN(hours)) return 'DONE'; // Fallback
+
+    const startTime = new Date(year, month - 1, day, hours, minutes);
+    const durationMs = (booking.duration || 45) * 60 * 1000;
+    const endTime = new Date(startTime.getTime() + durationMs);
+
+    if (now < startTime) return 'WAITING';
+    if (now >= startTime && now < endTime) return 'IN_PROGRESS';
+    return 'DONE';
   } catch (e) {
-    return false;
+    return 'DONE';
   }
+};
+
+// Helper to get date range based on period
+const getDateRange = (dateStr: string, period: 'day' | 'week' | 'month') => {
+  const d = new Date(dateStr);
+  const start = new Date(d);
+  const end = new Date(d);
+
+  if (period === 'day') {
+    // Start and End are same day
+  } else if (period === 'week') {
+    const day = start.getDay();
+    const diff = start.getDate() - day + (day === 0 ? -6 : 1); // adjust when day is sunday
+    start.setDate(diff);
+    end.setDate(diff + 6);
+  } else if (period === 'month') {
+    start.setDate(1);
+    end.setMonth(end.getMonth() + 1);
+    end.setDate(0);
+  }
+
+  // Return YYYY-MM-DD strings
+  const toStr = (date: Date) => {
+    const y = date.getFullYear();
+    const m = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  };
+
+  return { start: toStr(start), end: toStr(end) };
 };
 
 export const AdminView: React.FC<AdminViewProps> = ({ bookings, onDeleteBooking, onUpdatePrice, onCreateBooking }) => {
@@ -66,6 +97,7 @@ export const AdminView: React.FC<AdminViewProps> = ({ bookings, onDeleteBooking,
   // Default to today's date in YYYY-MM-DD format
   const [selectedDate, setSelectedDate] = useState<string>(new Date().toISOString().split('T')[0]);
   const [deleteId, setDeleteId] = useState<string | null>(null);
+  const [statsPeriod, setStatsPeriod] = useState<'day' | 'week' | 'month'>('day');
   
   // Price Edit State
   const [editPriceId, setEditPriceId] = useState<string | null>(null);
@@ -82,40 +114,59 @@ export const AdminView: React.FC<AdminViewProps> = ({ bookings, onDeleteBooking,
   const [createPhone, setCreatePhone] = useState('');
   const [isCreating, setIsCreating] = useState(false);
 
+  // Force re-render every minute to update statuses
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    const timer = setInterval(() => setTick(t => t + 1), 60000);
+    return () => clearInterval(timer);
+  }, []);
+
   // 1. Filter bookings based on Barbers
   const barberFilteredBookings = useMemo(() => {
     if (!filterBarberId) return bookings;
     return bookings.filter(b => String(b.barberId) === String(filterBarberId));
   }, [bookings, filterBarberId]);
 
-  // 2. Filter based on Date (for the list view)
-  const dateFilteredBookings = useMemo(() => {
+  // 2. Filter based on Date (for the list view - always Daily)
+  const dayListBookings = useMemo(() => {
     return barberFilteredBookings.filter(b => b.date === selectedDate && b.status === 'confirmed');
   }, [barberFilteredBookings, selectedDate]);
   
-  // 3. Calculate stats based on SELECTED DATE
+  // 3. Calculate stats based on SELECTED PERIOD
   const stats = useMemo(() => {
-    // Filter out system blocks for financial stats
-    const clientBookings = dateFilteredBookings.filter(b => !b.serviceId.startsWith('block_'));
+    const { start, end } = getDateRange(selectedDate, statsPeriod);
     
-    const totalPlan = clientBookings.reduce((sum, b) => sum + (b.price || 0), 0);
-    const totalCount = clientBookings.length;
+    // Filter bookings within the range
+    const periodBookings = barberFilteredBookings.filter(b => {
+      if (b.status !== 'confirmed') return false;
+      if (b.serviceId.startsWith('block_')) return false; // Exclude technical blocks from financial stats
+      return b.date >= start && b.date <= end;
+    });
+    
+    const totalPlan = periodBookings.reduce((sum, b) => sum + (b.price || 0), 0);
+    const totalCount = periodBookings.length;
 
-    const earned = clientBookings.reduce((sum, b) => {
-      if (isBookingCompleted(b.date, b.timeSlot)) {
+    // Only sum up revenue if status is DONE
+    const earned = periodBookings.reduce((sum, b) => {
+      const status = getBookingStatus(b);
+      if (status === 'DONE') {
         return sum + (b.price || 0);
       }
       return sum;
     }, 0);
 
+    // For "Completed" count
+    const doneCount = periodBookings.filter(b => getBookingStatus(b) === 'DONE').length;
+
     return {
       totalPlan,
       earned,
-      totalCount
+      totalCount,
+      doneCount
     };
-  }, [dateFilteredBookings]);
+  }, [barberFilteredBookings, selectedDate, statsPeriod]);
 
-  const sortedBookings = [...dateFilteredBookings].sort((a, b) => {
+  const sortedDayBookings = [...dayListBookings].sort((a, b) => {
     // Sort by time ascending (earliest first) for the daily schedule
     const timeA = cleanTime(a.timeSlot);
     const timeB = cleanTime(b.timeSlot);
@@ -218,7 +269,6 @@ export const AdminView: React.FC<AdminViewProps> = ({ bookings, onDeleteBooking,
     } else if (createMode === 'block' && createBlockType) {
        const blockDur = BLOCK_TYPES[createBlockType].duration;
        if (createBlockType === 'EARLY') {
-         // For early finish, validation is tricky, we just show available start slots
          slotsNeededForNew = 1; 
        } else {
          slotsNeededForNew = Math.ceil(blockDur/30);
@@ -233,9 +283,8 @@ export const AdminView: React.FC<AdminViewProps> = ({ bookings, onDeleteBooking,
       }
       // Check if next N slots are free
       let canFit = true;
-      // If Early finish, we don't strictly check all future slots here, but usually it means "From here to end"
       if (createMode === 'block' && createBlockType === 'EARLY') {
-         canFit = true; // Can technically start anytime that is free
+         canFit = true; 
       } else {
         for (let j = 1; j < slotsNeededForNew; j++) {
            const nextIndex = i + j;
@@ -297,14 +346,13 @@ export const AdminView: React.FC<AdminViewProps> = ({ bookings, onDeleteBooking,
       let duration = blockDef.duration;
       let time = createTime;
 
-      // Special logic for specific blocks
       if (createBlockType === 'EARLY') {
          const startMins = timeToMinutes(createTime);
          const endMins = timeToMinutes("21:00");
          duration = Math.max(30, endMins - startMins);
       } else if (createBlockType === 'DAY_OFF') {
-         time = "10:00"; // Force day off to start at open
-         duration = 660; // 11 hours
+         time = "10:00"; 
+         duration = 660; 
       }
 
       payload = {
@@ -312,7 +360,7 @@ export const AdminView: React.FC<AdminViewProps> = ({ bookings, onDeleteBooking,
         serviceId: blockDef.id,
         date: selectedDate,
         timeSlot: time,
-        clientName: blockDef.name, // Using Name field to show label
+        clientName: blockDef.name, 
         clientPhone: '',
         price: 0,
         duration
@@ -322,6 +370,40 @@ export const AdminView: React.FC<AdminViewProps> = ({ bookings, onDeleteBooking,
     await onCreateBooking(payload);
     setIsCreating(false);
     setIsCreatorOpen(false);
+  };
+
+  const renderStatusBadge = (status: BookingStatus, isBlock: boolean) => {
+    if (isBlock) {
+      return (
+        <div className="bg-zinc-800 px-2 py-1 rounded text-[10px] font-bold text-zinc-500 uppercase">
+          Тех. слот
+        </div>
+      );
+    }
+
+    switch (status) {
+      case 'IN_PROGRESS':
+        return (
+          <div className="flex items-center gap-1.5 bg-amber-600/10 border border-amber-600/20 px-2 py-1 rounded animate-pulse">
+            <Loader2 size={10} className="animate-spin text-amber-500" />
+            <span className="text-[10px] font-bold text-amber-500 uppercase tracking-wide">В процессе</span>
+          </div>
+        );
+      case 'DONE':
+        return (
+          <div className="flex items-center gap-1.5 bg-green-900/10 border border-green-900/20 px-2 py-1 rounded">
+            <CheckCircle2 size={10} className="text-green-600" />
+            <span className="text-[10px] font-bold text-green-600 uppercase tracking-wide">Завершено</span>
+          </div>
+        );
+      default: // WAITING
+        return (
+          <div className="flex items-center gap-1.5 bg-blue-900/10 border border-blue-900/20 px-2 py-1 rounded">
+            <Hourglass size={10} className="text-blue-400" />
+            <span className="text-[10px] font-bold text-blue-400 uppercase tracking-wide">Ожидается</span>
+          </div>
+        );
+    }
   };
 
   return (
@@ -400,40 +482,66 @@ export const AdminView: React.FC<AdminViewProps> = ({ bookings, onDeleteBooking,
         </button>
       </div>
 
-      {/* Stats Grid (Dynamic) */}
-      <div className="grid grid-cols-2 gap-3">
-        <div className="bg-zinc-900 p-4 rounded-xl border border-zinc-800">
-          <div className="text-zinc-500 text-[10px] uppercase font-bold mb-1 flex items-center gap-1">
-            <DollarSign size={12} /> Касса (Факт / План)
-          </div>
-          <div className="flex items-baseline gap-1">
-             <span className="text-xl font-mono font-bold text-amber-500">{stats.earned.toLocaleString()}</span>
-             <span className="text-sm font-mono text-zinc-600">/ {stats.totalPlan.toLocaleString()}₽</span>
-          </div>
+      {/* STATS & PERIOD SELECTOR */}
+      <div>
+        <div className="flex bg-zinc-900 p-1 rounded-lg mb-3 border border-zinc-800">
+           {(['day', 'week', 'month'] as const).map((p) => (
+             <button
+               key={p}
+               onClick={() => setStatsPeriod(p)}
+               className={`
+                 flex-1 py-1.5 text-[10px] font-bold uppercase tracking-wider rounded transition-colors
+                 ${statsPeriod === p ? 'bg-zinc-800 text-white' : 'text-zinc-500 hover:text-zinc-300'}
+               `}
+             >
+               {p === 'day' ? 'День' : p === 'week' ? 'Неделя' : 'Месяц'}
+             </button>
+           ))}
         </div>
-        <div className="bg-zinc-900 p-4 rounded-xl border border-zinc-800">
-          <div className="text-zinc-500 text-[10px] uppercase font-bold mb-1 flex items-center gap-1">
-            <Users size={12} /> Клиентов
+
+        <div className="grid grid-cols-2 gap-3">
+          <div className="bg-zinc-900 p-4 rounded-xl border border-zinc-800 relative overflow-hidden">
+            <div className="absolute top-0 right-0 p-3 opacity-5">
+              <DollarSign size={40} />
+            </div>
+            <div className="text-zinc-500 text-[10px] uppercase font-bold mb-1 flex items-center gap-1 relative z-10">
+              <CheckCircle2 size={12} className="text-green-600"/> Завершено
+            </div>
+            <div className="flex flex-col relative z-10">
+               <span className="text-xl font-mono font-bold text-white">{stats.earned.toLocaleString()}₽</span>
+               <span className="text-[10px] font-mono text-zinc-600">План: {stats.totalPlan.toLocaleString()}₽</span>
+            </div>
           </div>
-          <div className="text-2xl font-mono font-bold text-white">{stats.totalCount}</div>
+          <div className="bg-zinc-900 p-4 rounded-xl border border-zinc-800 relative overflow-hidden">
+            <div className="absolute top-0 right-0 p-3 opacity-5">
+              <BarChart3 size={40} />
+            </div>
+            <div className="text-zinc-500 text-[10px] uppercase font-bold mb-1 flex items-center gap-1 relative z-10">
+              <Users size={12} /> Клиентов
+            </div>
+            <div className="flex flex-col relative z-10">
+              <span className="text-2xl font-mono font-bold text-white">{stats.doneCount}</span>
+              <span className="text-[10px] font-mono text-zinc-600">Всего: {stats.totalCount}</span>
+            </div>
+          </div>
         </div>
       </div>
 
-      {/* Bookings List */}
+      {/* Bookings List (Always Daily) */}
       <div>
         <h2 className="text-lg font-bold uppercase text-white mb-4 flex items-center gap-2">
           <Calendar size={18} className="text-amber-600" /> 
-          Список записей
+          Расписание ({displayDateTitle})
         </h2>
         
         <div className="space-y-3">
-          {sortedBookings.length === 0 ? (
+          {sortedDayBookings.length === 0 ? (
             <div className="text-center py-10 border border-zinc-800 border-dashed rounded-xl">
               <p className="text-zinc-500 text-sm">На этот день записей нет</p>
             </div>
           ) : (
-            sortedBookings.map(booking => {
-              const isDone = isBookingCompleted(booking.date, booking.timeSlot);
+            sortedDayBookings.map(booking => {
+              const status = getBookingStatus(booking);
               const isBlock = booking.serviceId.startsWith('block_');
               
               return (
@@ -443,7 +551,11 @@ export const AdminView: React.FC<AdminViewProps> = ({ bookings, onDeleteBooking,
                     rounded-xl p-4 border relative transition-all overflow-hidden
                     ${isBlock 
                        ? 'bg-zinc-900/40 border-zinc-800/60 border-dashed' 
-                       : isDone ? 'bg-zinc-900 border-zinc-800 opacity-70' : 'bg-zinc-900 border-zinc-700 shadow-lg shadow-black/20'}
+                       : status === 'IN_PROGRESS' 
+                         ? 'bg-zinc-900 border-amber-600/40 shadow-lg shadow-amber-900/10'
+                         : status === 'DONE' 
+                           ? 'bg-zinc-900 border-zinc-800 opacity-60 grayscale-[0.5]' 
+                           : 'bg-zinc-900 border-zinc-700 shadow-lg shadow-black/20'}
                   `}
                 >
                   {isBlock && (
@@ -456,7 +568,6 @@ export const AdminView: React.FC<AdminViewProps> = ({ bookings, onDeleteBooking,
                     <div>
                       <div className={`font-black text-sm flex items-center gap-2 ${isBlock ? 'text-zinc-400 uppercase tracking-widest' : 'text-white'}`}>
                         {booking.clientName}
-                        {!isBlock && isDone && <CheckCircle2 size={14} className="text-green-600" />}
                       </div>
                       {!isBlock && (
                         <a href={`tel:${booking.clientPhone}`} className="flex items-center gap-1 text-zinc-400 text-xs mt-1 hover:text-amber-500">
@@ -465,21 +576,16 @@ export const AdminView: React.FC<AdminViewProps> = ({ bookings, onDeleteBooking,
                       )}
                       {isBlock && <span className="text-[10px] text-zinc-600 uppercase font-bold">Блокировка времени</span>}
                     </div>
-                    <div className="text-right">
-                      {!isBlock ? (
-                        <>
-                          <button 
-                            onClick={() => handleEditPriceClick(booking)}
-                            className={`font-mono font-bold flex items-center gap-1 active:scale-95 transition-transform hover:bg-zinc-800 px-1 rounded ${isDone ? 'text-green-600' : 'text-amber-600'}`}
-                          >
-                            {booking.price}₽ <Edit2 size={10} className="opacity-50" />
-                          </button>
-                          <div className="text-zinc-600 text-[10px] uppercase mt-1">{isDone ? 'Выполнено' : 'Ожидание'}</div>
-                        </>
-                      ) : (
-                        <div className="bg-zinc-800 px-2 py-1 rounded text-[10px] font-bold text-zinc-500 uppercase">
-                          Тех. слот
-                        </div>
+                    <div className="text-right flex flex-col items-end gap-2">
+                      {renderStatusBadge(status, isBlock)}
+                      
+                      {!isBlock && (
+                         <button 
+                           onClick={() => handleEditPriceClick(booking)}
+                           className={`font-mono font-bold flex items-center gap-1 active:scale-95 transition-transform hover:bg-zinc-800 px-1 rounded text-xs ${status === 'DONE' ? 'text-zinc-500' : 'text-amber-600'}`}
+                         >
+                           {booking.price}₽ <Edit2 size={10} className="opacity-50" />
+                         </button>
                       )}
                     </div>
                   </div>
