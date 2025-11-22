@@ -1,7 +1,7 @@
 
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { motion } from 'framer-motion';
-import { ChevronLeft, Calendar as CalendarIcon, User, Scissors, Clock, Sun, Moon, PhoneCall } from 'lucide-react';
+import { ChevronLeft, Calendar as CalendarIcon, User, Scissors, Clock, Sun, Moon, PhoneCall, X } from 'lucide-react';
 import { BARBERS, SERVICES } from '../constants';
 import { Barber, Service, Booking, TimeSlot, BarberServiceOffer } from '../types';
 import { getTelegramUser, triggerHaptic } from '../utils/telegram';
@@ -198,10 +198,6 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({ bookings, userBook
     let slotsNeeded = 1;
     if (selectedServiceOffer) {
       const d = selectedServiceOffer.durationMinutes;
-      // 30 min slots logic:
-      // <= 35m = 1 slot (30m)
-      // <= 65m = 2 slots (60m) - e.g. 45m or 60m service takes 2 slots
-      // <= 95m = 3 slots (90m)
       if (d <= 35) slotsNeeded = 1;
       else if (d <= 65) slotsNeeded = 2;
       else if (d <= 95) slotsNeeded = 3;
@@ -236,22 +232,29 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({ bookings, userBook
 
     // 2. BLOCK slots based on existing booking durations
     dayBookings.forEach(booking => {
-      const duration = booking.duration || 45; // Default to 45 if missing
+      const duration = booking.duration || 45; 
       let bookingSlotsCount = 1;
       
-      // Same logic as slotsNeeded above
       if (duration <= 35) bookingSlotsCount = 1;
       else if (duration <= 65) bookingSlotsCount = 2;
       else if (duration <= 95) bookingSlotsCount = 3;
       else bookingSlotsCount = Math.ceil(duration / 30);
 
       // Normalize check time to ensure format match (e.g. 9:00 -> 09:00)
-      const [bh, bm] = booking.timeSlot.split(':').map(Number);
-      let checkTime = `${bh.toString().padStart(2, '0')}:${bm.toString().padStart(2, '0')}`;
+      // IMPORTANT: Ensure parsing handles "1899" date string if it still sneaks in, though App.tsx should catch it.
+      let timeStr = booking.timeSlot;
+      if (timeStr.includes('T')) {
+          const match = timeStr.match(/T(\d{2}):(\d{2})/);
+          if (match) timeStr = `${match[1]}:${match[2]}`;
+      }
 
-      for (let i = 0; i < bookingSlotsCount; i++) {
-        occupiedTimes.add(checkTime);
-        checkTime = addMinutesToTime(checkTime, 30);
+      const [bh, bm] = timeStr.split(':').map(Number);
+      if (!isNaN(bh) && !isNaN(bm)) {
+         let checkTime = `${bh.toString().padStart(2, '0')}:${bm.toString().padStart(2, '0')}`;
+         for (let i = 0; i < bookingSlotsCount; i++) {
+           occupiedTimes.add(checkTime);
+           checkTime = addMinutesToTime(checkTime, 30);
+         }
       }
     });
 
@@ -480,10 +483,6 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({ bookings, userBook
      setSelectedTime(slot);
   };
 
-  useEffect(() => {
-    setSelectedTime(null);
-  }, [selectedDate, selectedBarber]);
-
   const getAvailableServices = () => {
     if (!selectedBarber) return [];
     return selectedBarber.services.map((offer) => {
@@ -509,15 +508,20 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({ bookings, userBook
               disabled={!slot.available}
               onClick={() => handleTimeSelect(slot)}
               className={`
-                py-2 rounded-lg font-mono font-bold text-sm transition-all active:scale-95
+                relative py-2 rounded-lg font-mono font-bold text-sm transition-all active:scale-95 overflow-hidden
                 ${!slot.available 
-                  ? 'bg-zinc-900/50 text-zinc-700 cursor-not-allowed border border-zinc-800/50' 
+                  ? 'bg-red-900/10 text-zinc-700 cursor-not-allowed border border-red-900/20' 
                   : selectedTime?.id === slot.id 
                     ? 'bg-amber-600 text-black shadow-lg shadow-amber-600/40' 
                     : 'bg-zinc-800 text-white hover:bg-zinc-700'}
               `}
             >
-              {slot.time}
+              <span className={!slot.available ? 'opacity-20' : ''}>{slot.time}</span>
+              {!slot.available && (
+                 <div className="absolute inset-0 flex items-center justify-center text-red-800/60">
+                    <X size={20} strokeWidth={3} />
+                 </div>
+              )}
             </button>
           ))}
         </div>

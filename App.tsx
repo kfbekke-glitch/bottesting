@@ -12,6 +12,37 @@ import { BARBERS } from './constants';
 
 const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycby5ek0lwgnxsC8Bc0TJ6DWhCvQK9-Lr6sSAGF0Z0IEASWCp09R2N3eCE2yZiY6l17_B/exec';
 
+// Helper to clean up time strings from Google Sheets (handling 1899-12-30T... format)
+const normalizeTimeSlot = (raw: any): string => {
+  if (!raw) return '';
+  const s = String(raw);
+  
+  // If it comes as a full ISO string (e.g., 1899-12-30T12:00:00.000Z)
+  if (s.includes('T')) {
+    // Extract the time part (HH:MM)
+    const match = s.match(/T(\d{2}):(\d{2})/);
+    if (match) {
+      return `${match[1]}:${match[2]}`;
+    }
+    // Fallback: try parsing as date
+    try {
+      const d = new Date(s);
+      if (!isNaN(d.getTime())) {
+        const h = d.getUTCHours().toString().padStart(2, '0');
+        const m = d.getUTCMinutes().toString().padStart(2, '0');
+        return `${h}:${m}`;
+      }
+    } catch (e) {}
+  }
+  
+  // If it's already "12:00" or "12:00:00", just return the first 5 chars
+  if (s.includes(':')) {
+    return s.substring(0, 5);
+  }
+  
+  return s;
+};
+
 const App: React.FC = () => {
   const [currentView, setCurrentView] = useState<AppView>(AppView.HOME);
   const [isBookingOpen, setIsBookingOpen] = useState(false);
@@ -81,6 +112,9 @@ const App: React.FC = () => {
             const bId = item.barberId ? String(item.barberId) : 'unknown';
             const sId = item.serviceId || 'unknown';
             
+            // Clean up the time slot format
+            const cleanTime = normalizeTimeSlot(item.timeSlot);
+            
             // Critical: If duration is 0 or missing, lookup the standard duration for this service
             // This ensures a 60min haircut actually blocks 60mins even if DB is empty
             const duration = item.duration || getFallbackDuration(bId, sId);
@@ -90,7 +124,7 @@ const App: React.FC = () => {
               barberId: bId,
               serviceId: sId,
               date: item.date, // ISO string
-              timeSlot: item.timeSlot,
+              timeSlot: cleanTime, // Ensure HH:MM
               clientName: item.clientName || 'Occupied',
               clientPhone: '',
               price: item.price || 0,
@@ -144,13 +178,13 @@ const App: React.FC = () => {
       }
   }, [localBookings]); 
 
-  // Polling Effect - Fetch data every 5 seconds (Reduced from 7s for better real-time feel)
+  // Polling Effect - Fetch data every 4 seconds
   useEffect(() => {
     fetchServerBookings(); // Initial fetch
     
     const intervalId = setInterval(() => {
       fetchServerBookings();
-    }, 5000); 
+    }, 4000); 
 
     return () => clearInterval(intervalId);
   }, [fetchServerBookings]);

@@ -1,5 +1,4 @@
 
-
 import React, { useState } from 'react';
 import { Booking } from '../types';
 import { BARBERS, SERVICES } from '../constants';
@@ -9,6 +8,23 @@ import { Modal } from './ui/Modal';
 interface MyBookingsProps {
   bookings: Booking[];
   onCancelBooking: (id: string) => void;
+}
+
+// Helper to safely extract time from potentially malformed strings
+const cleanTimeDisplay = (time: string) => {
+  if (!time) return '--:--';
+  if (time.includes('T')) {
+    const match = time.match(/T(\d{2}):(\d{2})/);
+    if (match) return `${match[1]}:${match[2]}`;
+    try {
+        const d = new Date(time);
+        if(!isNaN(d.getTime())) {
+            return `${d.getUTCHours().toString().padStart(2,'0')}:${d.getUTCMinutes().toString().padStart(2,'0')}`;
+        }
+    } catch(e) {}
+  }
+  if (time.includes(':')) return time.substring(0, 5);
+  return time;
 }
 
 export const MyBookings: React.FC<MyBookingsProps> = ({ bookings, onCancelBooking }) => {
@@ -26,7 +42,7 @@ export const MyBookings: React.FC<MyBookingsProps> = ({ bookings, onCancelBookin
     const service = SERVICES.find(s => s.id === booking.serviceId);
     const serviceOffer = barber?.services.find(so => so.serviceId === booking.serviceId);
     
-    // FIX: Dynamically calculate price from constants for accuracy, using stored price as fallback.
+    // Dynamically calculate price from constants for accuracy, using stored price as fallback.
     let price = booking.price;
     if (serviceOffer) {
       price = serviceOffer.price;
@@ -55,17 +71,15 @@ export const MyBookings: React.FC<MyBookingsProps> = ({ bookings, onCancelBookin
     }
   };
 
-  // FIX: Sort by full appointment date and time (descending) to correctly order
-  // bookings that occur on the same day.
   const sortedBookings = [...bookings].sort((a, b) => {
     try {
-      const [hA, mA] = a.timeSlot.split(':').map(Number);
+      const [hA, mA] = cleanTimeDisplay(a.timeSlot).split(':').map(Number);
       const dateTimeA = new Date(a.date);
-      dateTimeA.setHours(hA, mA, 0, 0);
+      if(!isNaN(hA)) dateTimeA.setHours(hA, mA, 0, 0);
 
-      const [hB, mB] = b.timeSlot.split(':').map(Number);
+      const [hB, mB] = cleanTimeDisplay(b.timeSlot).split(':').map(Number);
       const dateTimeB = new Date(b.date);
-      dateTimeB.setHours(hB, mB, 0, 0);
+      if(!isNaN(hB)) dateTimeB.setHours(hB, mB, 0, 0);
 
       const timeA = dateTimeA.getTime();
       const timeB = dateTimeB.getTime();
@@ -98,6 +112,7 @@ export const MyBookings: React.FC<MyBookingsProps> = ({ bookings, onCancelBookin
       
       {sortedBookings.map((booking) => {
         const { barberName, serviceName, barberImage, price } = getBookingDetails(booking);
+        const displayTime = cleanTimeDisplay(booking.timeSlot);
 
         return (
           <div 
@@ -128,7 +143,7 @@ export const MyBookings: React.FC<MyBookingsProps> = ({ bookings, onCancelBookin
                <div className="w-px h-4 bg-zinc-800" />
                <div className="flex items-center gap-2 text-white font-mono">
                  <Clock size={14} className="text-zinc-500" />
-                 {booking.timeSlot}
+                 {displayTime}
                </div>
                <div className="w-px h-4 bg-zinc-800" />
                <div className="text-amber-600 font-mono font-bold">
