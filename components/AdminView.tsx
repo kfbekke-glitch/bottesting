@@ -1,8 +1,8 @@
 
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Booking } from '../types';
 import { BARBERS, SERVICES } from '../constants';
-import { Shield, DollarSign, Users, Calendar, Clock, Trash2, Search } from 'lucide-react';
+import { Shield, DollarSign, Users, Calendar, Clock, Trash2, Filter } from 'lucide-react';
 
 interface AdminViewProps {
   bookings: Booking[];
@@ -21,10 +21,17 @@ const cleanTime = (time: string) => {
 };
 
 export const AdminView: React.FC<AdminViewProps> = ({ bookings, onDeleteBooking }) => {
+  const [filterBarberId, setFilterBarberId] = useState<string | null>(null);
+
+  // 1. Filter bookings based on selection
+  const filteredBookings = useMemo(() => {
+    if (!filterBarberId) return bookings;
+    return bookings.filter(b => String(b.barberId) === String(filterBarberId));
+  }, [bookings, filterBarberId]);
   
-  // Calculate stats
+  // 2. Calculate stats based on FILTERED bookings
   const stats = useMemo(() => {
-    const activeBookings = bookings.filter(b => b.status === 'confirmed');
+    const activeBookings = filteredBookings.filter(b => b.status === 'confirmed');
     const totalRevenue = activeBookings.reduce((sum, b) => sum + (b.price || 0), 0);
     
     // Filter for "Today" (rough check)
@@ -38,9 +45,9 @@ export const AdminView: React.FC<AdminViewProps> = ({ bookings, onDeleteBooking 
       todayCount: todayBookings.length,
       todayRevenue
     };
-  }, [bookings]);
+  }, [filteredBookings]);
 
-  const sortedBookings = [...bookings]
+  const sortedBookings = [...filteredBookings]
     .filter(b => b.status === 'confirmed')
     .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
@@ -59,17 +66,54 @@ export const AdminView: React.FC<AdminViewProps> = ({ bookings, onDeleteBooking 
         </div>
       </div>
 
-      {/* Stats Grid */}
+      {/* Barber Filter Scroll */}
+      <div>
+        <div className="text-[10px] font-bold text-zinc-500 uppercase mb-2 flex items-center gap-1">
+          <Filter size={10} /> Фильтр по мастеру
+        </div>
+        <div className="flex gap-3 overflow-x-auto no-scrollbar pb-2">
+          {/* "ALL" Button */}
+          <button
+            onClick={() => setFilterBarberId(null)}
+            className={`
+              shrink-0 px-4 py-2 rounded-xl border flex items-center gap-2 transition-colors
+              ${filterBarberId === null 
+                ? 'bg-white text-black border-white' 
+                : 'bg-zinc-900 text-zinc-400 border-zinc-800'}
+            `}
+          >
+            <span className="text-xs font-black uppercase">Все</span>
+          </button>
+
+          {BARBERS.map(barber => (
+            <button
+              key={barber.id}
+              onClick={() => setFilterBarberId(filterBarberId === barber.id ? null : barber.id)}
+              className={`
+                shrink-0 pr-4 pl-1 py-1 rounded-full border flex items-center gap-2 transition-colors
+                ${filterBarberId === barber.id 
+                  ? 'bg-amber-600 text-black border-amber-600' 
+                  : 'bg-zinc-900 text-zinc-400 border-zinc-800'}
+              `}
+            >
+              <img src={barber.image} className="w-8 h-8 rounded-full object-cover" alt="" />
+              <span className="text-xs font-bold uppercase whitespace-nowrap">{barber.name.split(' ')[0]}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Stats Grid (Dynamic) */}
       <div className="grid grid-cols-2 gap-3">
         <div className="bg-zinc-900 p-4 rounded-xl border border-zinc-800">
           <div className="text-zinc-500 text-[10px] uppercase font-bold mb-1 flex items-center gap-1">
-            <DollarSign size={12} /> Выручка (Всего)
+            <DollarSign size={12} /> Выручка {filterBarberId ? '(Мастер)' : '(Всего)'}
           </div>
           <div className="text-2xl font-mono font-bold text-white">{stats.totalRevenue.toLocaleString()}₽</div>
         </div>
         <div className="bg-zinc-900 p-4 rounded-xl border border-zinc-800">
           <div className="text-zinc-500 text-[10px] uppercase font-bold mb-1 flex items-center gap-1">
-            <Users size={12} /> Записей (Всего)
+            <Users size={12} /> Записей {filterBarberId ? '(Мастер)' : '(Всего)'}
           </div>
           <div className="text-2xl font-mono font-bold text-white">{stats.totalActive}</div>
         </div>
@@ -88,20 +132,25 @@ export const AdminView: React.FC<AdminViewProps> = ({ bookings, onDeleteBooking 
       {/* All Bookings List */}
       <div>
         <h2 className="text-lg font-bold uppercase text-white mb-4 flex items-center gap-2">
-          <Calendar size={18} className="text-amber-600" /> Все записи
+          <Calendar size={18} className="text-amber-600" /> 
+          {filterBarberId ? 'Записи мастера' : 'Все записи'}
         </h2>
         
         <div className="space-y-3">
           {sortedBookings.length === 0 ? (
-            <p className="text-zinc-500 text-sm text-center py-4">Нет активных записей</p>
+            <div className="text-center py-10 border border-zinc-800 border-dashed rounded-xl">
+              <p className="text-zinc-500 text-sm">Нет активных записей</p>
+            </div>
           ) : (
             sortedBookings.map(booking => (
-              <div key={booking.id} className="bg-zinc-900 rounded-xl p-4 border border-zinc-800 relative group">
-                <div className="flex justify-between items-start mb-2">
+              <div key={booking.id} className="bg-zinc-900 rounded-xl p-4 border border-zinc-800 relative">
+                <div className="flex justify-between items-start mb-3">
                   <div>
-                    <div className="text-white font-bold text-sm">{booking.clientName}</div>
+                    <div className="text-white font-bold text-sm flex items-center gap-2">
+                      {booking.clientName}
+                      {booking.tgUsername && <span className="text-blue-400 text-[10px] font-normal">@{booking.tgUsername}</span>}
+                    </div>
                     <div className="text-zinc-500 text-xs">{booking.clientPhone || 'Без телефона'}</div>
-                    {booking.tgUsername && <div className="text-blue-400 text-[10px]">@{booking.tgUsername}</div>}
                   </div>
                   <div className="text-right">
                     <div className="text-amber-600 font-mono font-bold">{booking.price}₽</div>
@@ -109,28 +158,33 @@ export const AdminView: React.FC<AdminViewProps> = ({ bookings, onDeleteBooking 
                   </div>
                 </div>
                 
-                <div className="bg-zinc-950 rounded-lg p-2 flex items-center justify-between text-xs text-zinc-400 mb-3">
-                   <div className="flex items-center gap-1">
+                <div className="grid grid-cols-2 gap-2 mb-3">
+                   <div className="bg-zinc-950 rounded-lg p-2 flex items-center gap-2 text-xs text-zinc-400 border border-zinc-800/50">
                      <Calendar size={12} /> {booking.date}
                    </div>
-                   <div className="flex items-center gap-1">
+                   <div className="bg-zinc-950 rounded-lg p-2 flex items-center gap-2 text-xs text-zinc-400 border border-zinc-800/50">
                      <Clock size={12} /> {cleanTime(booking.timeSlot)}
                    </div>
                 </div>
 
-                <div className="flex justify-between items-center text-xs border-t border-zinc-800 pt-2 mt-2">
-                   <span className="text-zinc-500">{getBarberName(booking.barberId)}</span>
-                   <span className="text-zinc-300 font-medium truncate max-w-[120px]">{getServiceName(booking.serviceId)}</span>
-                </div>
+                <div className="flex justify-between items-center border-t border-zinc-800 pt-3 mt-1">
+                   <div className="flex flex-col">
+                       <span className={`text-xs font-bold ${filterBarberId ? 'text-amber-500' : 'text-zinc-300'}`}>
+                          {getBarberName(booking.barberId)}
+                       </span>
+                       <span className="text-[10px] text-zinc-500 truncate max-w-[150px]">{getServiceName(booking.serviceId)}</span>
+                   </div>
 
-                <button 
-                  onClick={() => {
-                    if(confirm('Админ удаление: Вы уверены?')) onDeleteBooking(booking.id);
-                  }}
-                  className="absolute top-2 right-2 p-2 bg-red-900/20 text-red-600 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity"
-                >
-                  <Trash2 size={16} />
-                </button>
+                   <button 
+                      onClick={() => {
+                        if(confirm('Вы точно хотите удалить эту запись?')) onDeleteBooking(booking.id);
+                      }}
+                      className="flex items-center gap-1 px-3 py-2 bg-red-500/10 text-red-500 rounded-lg text-[10px] font-bold uppercase hover:bg-red-500/20 transition-colors border border-red-500/20"
+                   >
+                      <Trash2 size={14} />
+                      Удалить
+                   </button>
+                </div>
               </div>
             ))
           )}
