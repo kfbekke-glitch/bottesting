@@ -11,9 +11,10 @@ interface ModalProps {
   title: string;
   description: string;
   singleButton?: boolean;
+  children?: React.ReactNode;
 }
 
-export const Modal: React.FC<ModalProps> = ({ isOpen, onClose, onConfirm, title, description, singleButton = false }) => {
+export const Modal: React.FC<ModalProps> = ({ isOpen, onClose, onConfirm, title, description, singleButton = false, children }) => {
   return (
     <AnimatePresence>
       {isOpen && (
@@ -49,11 +50,17 @@ export const Modal: React.FC<ModalProps> = ({ isOpen, onClose, onConfirm, title,
                 </div>
               </div>
 
-              <div className="flex gap-3 mt-8 justify-end">
+              {children && (
+                <div className="mb-6 pl-1">
+                  {children}
+                </div>
+              )}
+
+              <div className="flex gap-3 mt-4 justify-end">
                 {!singleButton && (
-                   <Button variant="outline" onClick={onClose} className="text-sm py-2">Нет, оставить</Button>
+                   <Button variant="outline" onClick={onClose} className="text-sm py-2">Отмена</Button>
                 )}
-                <Button variant="danger" onClick={onConfirm} className="text-sm py-2">{singleButton ? 'Понятно' : 'Да, отменить'}</Button>
+                <Button variant="danger" onClick={onConfirm} className="text-sm py-2">{singleButton ? 'Понятно' : 'Подтвердить'}</Button>
               </div>
             </div>
           </motion.div>

@@ -13,7 +13,7 @@ import { BARBERS } from './constants';
 import { WifiOff } from 'lucide-react';
 import { Modal } from './components/ui/Modal';
 
-const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycby5ek0lwgnxsC8Bc0TJ6DWhCvQK9-Lr6sSAGF0Z0IEASWCp09R2N3eCE2yZiY6l17_B/exec';
+const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxHYQW1vkDSYMqHV-QcBBgAJx-q9dzlCFdCPNujQfoQ0m_ddw01vdqE0xZ8xyxSUDn-/exec';
 
 // Robust date parser that forces correct day regardless of timezone
 const normalizeDate = (raw: any): string => {
@@ -296,6 +296,37 @@ const App: React.FC = () => {
     }
   };
 
+  const handleUpdatePrice = async (id: string, newPrice: number) => {
+     if (isOffline) {
+      setShowOfflineAlert(true);
+      return;
+    }
+
+    const targetId = String(id);
+    
+    // Optimistic update
+    setServerBookings(prev => prev.map(b => 
+      String(b.id) === targetId ? { ...b, price: newPrice } : b
+    ));
+
+    try {
+       await fetch(GOOGLE_SCRIPT_URL, {
+        method: 'POST',
+        mode: 'no-cors',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({ 
+          action: 'update_price',
+          id: targetId,
+          price: newPrice
+        })
+      });
+      // fetchServerBookings will sync eventually
+    } catch (e) {
+      console.error("Failed to update price", e);
+      setIsOffline(true);
+    }
+  };
+
   const handleStartBooking = (barberId?: string, serviceId?: string) => {
     if (isOffline) {
       setShowOfflineAlert(true);
@@ -387,6 +418,7 @@ const App: React.FC = () => {
               <AdminView 
                 bookings={serverBookings}
                 onDeleteBooking={handleCancelBooking}
+                onUpdatePrice={handleUpdatePrice}
               />
             </motion.div>
           )}
