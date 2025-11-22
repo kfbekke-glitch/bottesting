@@ -7,15 +7,14 @@ import { Barber, Service, Booking, TimeSlot, BarberServiceOffer } from '../types
 import { getTelegramUser, triggerHaptic } from '../utils/telegram';
 
 interface BookingWizardProps {
-  bookings: Booking[]; // All occupied slots (local + server)
-  userBookings: Booking[]; // Current user's specific bookings
+  bookings: Booking[]; 
+  userBookings: Booking[];
   onComplete: (booking: Omit<Booking, 'id' | 'status' | 'createdAt'>) => Promise<void> | void;
   onCancel: () => void;
   initialBarberId?: string;
   initialServiceId?: string;
 }
 
-// Helper to get current Moscow Time parts safely
 const getMskTimeParts = () => {
   const now = new Date();
   try {
@@ -36,31 +35,18 @@ const getMskTimeParts = () => {
     };
     
     const year = getPart('year');
-    const month = getPart('month') - 1; // JS months are 0-indexed
+    const month = getPart('month') - 1;
     const day = getPart('day');
     const hour = getPart('hour');
     const minute = getPart('minute');
 
     if (isNaN(year) || isNaN(month) || isNaN(day) || isNaN(hour) || isNaN(minute)) {
-       return {
-         year: now.getFullYear(),
-         month: now.getMonth(),
-         day: now.getDate(),
-         hour: now.getHours(),
-         minute: now.getMinutes()
-       };
+       return { year: now.getFullYear(), month: now.getMonth(), day: now.getDate(), hour: now.getHours(), minute: now.getMinutes() };
     }
 
     return { year, month, day, hour, minute };
   } catch (e) {
-    // Absolute Fallback
-    return {
-      year: now.getFullYear(),
-      month: now.getMonth(),
-      day: now.getDate(),
-      hour: now.getHours(),
-      minute: now.getMinutes()
-    };
+    return { year: now.getFullYear(), month: now.getMonth(), day: now.getDate(), hour: now.getHours(), minute: now.getMinutes() };
   }
 };
 
@@ -79,12 +65,10 @@ const addMinutesToTime = (time: string, minutesToAdd: number) => {
 const PROMO_SERVICE_ID = 's5';
 const PROMO_DISCOUNT = 0.85;
 
-// SIMPLIFIED AND ROBUST DATE KEY
 const getDateKey = (date: Date | string): string => {
   try {
     const d = typeof date === 'string' ? new Date(date) : date;
     if (isNaN(d.getTime())) return '';
-
     const year = d.getFullYear();
     const month = String(d.getMonth() + 1).padStart(2, '0');
     const day = String(d.getDate()).padStart(2, '0');
@@ -93,7 +77,6 @@ const getDateKey = (date: Date | string): string => {
     return '';
   }
 };
-
 
 export const BookingWizard: React.FC<BookingWizardProps> = ({ bookings, userBookings, onComplete, onCancel, initialBarberId, initialServiceId }) => {
   const [selectedBarber, setSelectedBarber] = useState<Barber | null>(() => {
@@ -108,35 +91,25 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({ bookings, userBook
   const [selectedServiceDetails, setSelectedServiceDetails] = useState<Service | null>(null);
   const [mskTime, setMskTime] = useState(() => getMskTimeParts());
   const [isSubmitting, setIsSubmitting] = useState(false);
-
-  // Telegram User Data
   const tgUser = getTelegramUser();
-
-  // Form State
   const [name, setName] = useState(tgUser?.first_name || '');
   const [phone, setPhone] = useState('');
 
-  // Effect to update name if Telegram data loads late
   useEffect(() => {
-    if (!name && tgUser?.first_name) {
-      setName(tgUser.first_name);
-    }
+    if (!name && tgUser?.first_name) setName(tgUser.first_name);
   }, [tgUser]);
 
   const dates = useMemo(() => {
     const { year, month, day } = getMskTimeParts(); 
     const dateList = [];
-    
     const safeYear = isNaN(year) ? new Date().getFullYear() : year;
     const safeMonth = isNaN(month) ? new Date().getMonth() : month;
     const safeDay = isNaN(day) ? new Date().getDate() : day;
-
     const baseDate = new Date(safeYear, safeMonth, safeDay);
-    const validBase = isNaN(baseDate.getTime()) ? new Date() : baseDate;
     
     for (let i = 0; i < 15; i++) {
-      const d = new Date(validBase);
-      d.setDate(validBase.getDate() + i);
+      const d = new Date(baseDate);
+      d.setDate(baseDate.getDate() + i);
       dateList.push(d);
     }
     return dateList;
@@ -153,9 +126,7 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({ bookings, userBook
 
   const availableBarbers = useMemo(() => {
     let list = BARBERS;
-    if (initialServiceId) {
-      list = BARBERS.filter(b => b.services.some(s => s.serviceId === initialServiceId));
-    }
+    if (initialServiceId) list = BARBERS.filter(b => b.services.some(s => s.serviceId === initialServiceId));
     return [...list].sort((a, b) => b.rating - a.rating);
   }, [initialServiceId]);
 
@@ -165,9 +136,7 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({ bookings, userBook
   }, [initialServiceId]);
 
   useEffect(() => {
-    const timer = setInterval(() => {
-      setMskTime(getMskTimeParts());
-    }, 30000); 
+    const timer = setInterval(() => setMskTime(getMskTimeParts()), 30000); 
     return () => clearInterval(timer);
   }, []);
 
@@ -179,7 +148,6 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({ bookings, userBook
   const hasExistingBookingOnDate = useMemo(() => {
     if (isNaN(selectedDate.getTime())) return false;
     const selectedKey = getDateKey(selectedDate);
-    
     return userBookings.some(b => {
       if (b.status !== 'confirmed') return false;
       return getDateKey(b.date) === selectedKey;
@@ -190,11 +158,8 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({ bookings, userBook
     const slots: TimeSlot[] = [];
     if (isNaN(selectedDate.getTime()) || !selectedBarber) return slots;
     
-    if (!selectedBarber.workDays.includes(selectedDate.getDay())) {
-      return slots;
-    }
+    if (!selectedBarber.workDays.includes(selectedDate.getDay())) return slots;
 
-    // Logic to calculate how many slots the SELECTED service needs
     let slotsNeeded = 1;
     if (selectedServiceOffer) {
       const d = selectedServiceOffer.durationMinutes;
@@ -208,7 +173,6 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({ bookings, userBook
     const endHour = 21; 
     const allDayIntervals: { time: string; isBlocked: boolean }[] = [];
 
-    // STRICT string generation: HH:MM with zero padding
     for (let h = startHour; h < endHour; h++) {
       ['00', '30'].forEach(m => {
         const hStr = h.toString().padStart(2, '0');
@@ -220,28 +184,22 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({ bookings, userBook
     const todayKey = getDateKey(new Date(mskTime.year, mskTime.month, mskTime.day));
     const isToday = selectedKey === todayKey;
     const currentMskMinutes = mskTime.hour * 60 + mskTime.minute;
-
     const occupiedTimes = new Set<string>();
 
-    // 1. FILTER Bookings for THIS BARBER ONLY
     const dayBookings = bookings.filter(b => {
       if (b.status !== 'confirmed') return false;
       if (String(b.barberId) !== String(selectedBarber.id)) return false;
       return getDateKey(b.date) === selectedKey;
     });
 
-    // 2. BLOCK slots based on existing booking durations
     dayBookings.forEach(booking => {
       const duration = booking.duration || 45; 
       let bookingSlotsCount = 1;
-      
       if (duration <= 35) bookingSlotsCount = 1;
       else if (duration <= 65) bookingSlotsCount = 2;
       else if (duration <= 95) bookingSlotsCount = 3;
       else bookingSlotsCount = Math.ceil(duration / 30);
 
-      // Normalize check time to ensure format match (e.g. 9:00 -> 09:00)
-      // IMPORTANT: Ensure parsing handles "1899" date string if it still sneaks in, though App.tsx should catch it.
       let timeStr = booking.timeSlot;
       if (timeStr.includes('T')) {
           const match = timeStr.match(/T(\d{2}):(\d{2})/);
@@ -258,71 +216,40 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({ bookings, userBook
       }
     });
 
-    // 3. Mark intervals as blocked
     allDayIntervals.forEach(interval => {
       const intervalMins = timeToMinutes(interval.time);
-      
-      // Block past times if today
-      if (isToday && intervalMins <= currentMskMinutes) {
-        interval.isBlocked = true;
-      }
-      // Block occupied times
-      if (occupiedTimes.has(interval.time)) {
-        interval.isBlocked = true;
-      }
+      if (isToday && intervalMins <= currentMskMinutes) interval.isBlocked = true;
+      if (occupiedTimes.has(interval.time)) interval.isBlocked = true;
     });
 
-    // 4. Generate final selectable slots (checking if selected service FITS)
     for (let i = 0; i < allDayIntervals.length; i++) {
       const startSlot = allDayIntervals[i];
-      
       if (startSlot.isBlocked) {
-        slots.push({
-          id: `t-${selectedKey}-${startSlot.time}`,
-          time: startSlot.time,
-          available: false
-        });
+        slots.push({ id: `t-${selectedKey}-${startSlot.time}`, time: startSlot.time, available: false });
         continue;
       }
-
-      // Check if subsequent slots needed for duration are also free
       let canFit = true;
       for (let j = 1; j < slotsNeeded; j++) {
         const nextIndex = i + j;
-        if (nextIndex >= allDayIntervals.length) {
-          canFit = false; // Exceeds working hours
-          break;
-        }
-        if (allDayIntervals[nextIndex].isBlocked) {
-          canFit = false; // Overlaps with another booking
+        if (nextIndex >= allDayIntervals.length || allDayIntervals[nextIndex].isBlocked) {
+          canFit = false;
           break;
         }
       }
-
-      slots.push({
-        id: `t-${selectedKey}-${startSlot.time}`,
-        time: startSlot.time,
-        available: canFit
-      });
+      slots.push({ id: `t-${selectedKey}-${startSlot.time}`, time: startSlot.time, available: canFit });
     }
 
     return slots;
   }, [selectedDate, mskTime, bookings, selectedBarber, selectedServiceOffer]);
 
   const groupedSlots = useMemo(() => {
-    const groups = {
-      morning: [] as TimeSlot[], 
-      day: [] as TimeSlot[],     
-      evening: [] as TimeSlot[]  
-    };
-
+    const groups = { morning: [] as TimeSlot[], day: [] as TimeSlot[], evening: [] as TimeSlot[] };
     timeSlots.forEach(slot => {
       const [h] = slot.time.split(':').map(Number);
       if (h < 12) groups.morning.push(slot);
       else if (h < 17) groups.day.push(slot);
       else groups.evening.push(slot);
     });
-
     return groups;
   }, [timeSlots]);
 
@@ -338,9 +265,7 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({ bookings, userBook
   const getDayName = (date: Date) => {
     if (isNaN(date.getTime())) return '';
     const { day, month, year } = mskTime;
-    if (date.getDate() === day && date.getMonth() === month && date.getFullYear() === year) {
-      return 'Сегодня';
-    }
+    if (date.getDate() === day && date.getMonth() === month && date.getFullYear() === year) return 'Сегодня';
     try {
       return new Intl.DateTimeFormat('ru-RU', { weekday: 'short' }).format(date);
     } catch (e) {
@@ -350,13 +275,8 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({ bookings, userBook
 
   const handlePhoneChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     let val = e.target.value.replace(/\D/g, '');
-    if (val.length === 0) {
-      setPhone('');
-      return;
-    }
-    if (val.startsWith('7') || val.startsWith('8')) {
-      val = val.substring(1);
-    }
+    if (val.length === 0) { setPhone(''); return; }
+    if (val.startsWith('7') || val.startsWith('8')) val = val.substring(1);
     if (val.length > 10) val = val.substring(0, 10);
     setPhone(val);
   };
@@ -379,10 +299,16 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({ bookings, userBook
         finalPrice = Math.floor(finalPrice * PROMO_DISCOUNT);
       }
 
+      // Construct simple YYYY-MM-DD string to avoid timezone shifts
+      const year = selectedDate.getFullYear();
+      const month = String(selectedDate.getMonth() + 1).padStart(2, '0');
+      const day = String(selectedDate.getDate()).padStart(2, '0');
+      const simpleDateString = `${year}-${month}-${day}`;
+
       await onComplete({
         barberId: selectedBarber!.id,
         serviceId: selectedServiceOffer!.serviceId,
-        date: selectedDate.toISOString(),
+        date: simpleDateString, // Pass string directly
         timeSlot: selectedTime!.time,
         clientName: name,
         clientPhone: `+7${phone}`,
@@ -398,18 +324,14 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({ bookings, userBook
   const handleBack = () => {
     triggerHaptic('impact', 'light');
     if (step > 1) {
-      if (step === 2 && initialBarberId) {
-        onCancel();
-      } 
+      if (step === 2 && initialBarberId) onCancel();
       else if (step === 3 && initialServiceId) {
         setStep(1);
         setSelectedBarber(null);
         setSelectedServiceOffer(null);
         setSelectedServiceDetails(null);
       }
-      else {
-        setStep(prev => prev - 1);
-      }
+      else setStep(prev => prev - 1);
     }
     else onCancel();
   };
@@ -417,11 +339,9 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({ bookings, userBook
   const handleBarberSelect = (barber: Barber) => {
     triggerHaptic('selection');
     setSelectedBarber(barber);
-    
     if (initialServiceId) {
       const offer = barber.services.find(s => s.serviceId === initialServiceId);
       const details = SERVICES.find(s => s.id === initialServiceId);
-      
       if (offer && details) {
         setSelectedServiceOffer(offer);
         setSelectedServiceDetails(details);
@@ -429,7 +349,6 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({ bookings, userBook
         return;
       }
     }
-
     setSelectedServiceOffer(null);
     setSelectedServiceDetails(null);
     setTimeout(() => setStep(2), 150);
@@ -449,15 +368,8 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({ bookings, userBook
     scrollLeft.current = dateScrollRef.current.scrollLeft;
     dragDist.current = 0;
   };
-
-  const handleMouseLeave = () => {
-    isDown.current = false;
-  };
-
-  const handleMouseUp = () => {
-    isDown.current = false;
-  };
-
+  const handleMouseLeave = () => isDown.current = false;
+  const handleMouseUp = () => isDown.current = false;
   const handleMouseMove = (e: React.MouseEvent) => {
     if (!isDown.current || !dateScrollRef.current) return;
     e.preventDefault();
@@ -468,20 +380,11 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({ bookings, userBook
   };
 
   const handleDateClick = (date: Date, disabled: boolean) => {
-    if (disabled) {
-      triggerHaptic('notification', 'error');
-      return;
-    }
-    if (dragDist.current < 5) {
-      triggerHaptic('selection');
-      setSelectedDate(date);
-    }
+    if (disabled) { triggerHaptic('notification', 'error'); return; }
+    if (dragDist.current < 5) { triggerHaptic('selection'); setSelectedDate(date); }
   };
 
-  const handleTimeSelect = (slot: TimeSlot) => {
-     triggerHaptic('selection');
-     setSelectedTime(slot);
-  };
+  const handleTimeSelect = (slot: TimeSlot) => { triggerHaptic('selection'); setSelectedTime(slot); };
 
   const getAvailableServices = () => {
     if (!selectedBarber) return [];
@@ -508,18 +411,18 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({ bookings, userBook
               disabled={!slot.available}
               onClick={() => handleTimeSelect(slot)}
               className={`
-                relative py-2 rounded-lg font-mono font-bold text-sm transition-all active:scale-95 overflow-hidden
+                relative py-2 rounded-lg font-mono font-bold text-sm transition-all active:scale-95 overflow-hidden flex items-center justify-center
                 ${!slot.available 
-                  ? 'bg-red-900/10 text-zinc-700 cursor-not-allowed border border-red-900/20' 
+                  ? 'bg-zinc-900/50 text-zinc-600 cursor-not-allowed border border-zinc-800' 
                   : selectedTime?.id === slot.id 
                     ? 'bg-amber-600 text-black shadow-lg shadow-amber-600/40' 
                     : 'bg-zinc-800 text-white hover:bg-zinc-700'}
               `}
             >
-              <span className={!slot.available ? 'opacity-20' : ''}>{slot.time}</span>
+              <span className={!slot.available ? 'opacity-30 scale-90 block' : ''}>{slot.time}</span>
               {!slot.available && (
-                 <div className="absolute inset-0 flex items-center justify-center text-red-800/60">
-                    <X size={20} strokeWidth={3} />
+                 <div className="absolute top-0.5 right-0.5">
+                    <X size={10} strokeWidth={3} className="text-red-600 opacity-60" />
                  </div>
               )}
             </button>
@@ -528,6 +431,9 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({ bookings, userBook
       </div>
     );
   };
+
+  // Rest of component (render) matches original logic but with updated styles
+  // ... (Standard Render Logic) ...
 
   return (
     <div className="fixed inset-0 bg-zinc-950 z-50 flex flex-col h-full w-full">
@@ -549,13 +455,8 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({ bookings, userBook
               className="pb-20"
             >
               <h2 className="text-2xl font-black uppercase text-white mb-2">Кто будет стричь?</h2>
-              {initialServiceId && (
-                 <p className="text-amber-600 font-bold text-xs uppercase mb-6">
-                   Мастера для услуги: <span className="text-white">{preSelectedServiceName}</span>
-                 </p>
-              )}
+              {initialServiceId && <p className="text-amber-600 font-bold text-xs uppercase mb-6">Мастера для услуги: <span className="text-white">{preSelectedServiceName}</span></p>}
               {!initialServiceId && <div className="mb-6" />}
-
               <div className="grid grid-cols-2 gap-4">
                 {availableBarbers.map((barber) => (
                   <div 
@@ -590,12 +491,10 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({ bookings, userBook
             >
               <h2 className="text-2xl font-black uppercase text-white mb-2">Что делаем?</h2>
               <p className="text-zinc-500 text-sm mb-6">Услуги мастера: <span className="text-white font-bold">{selectedBarber?.name}</span></p>
-              
               <div className="space-y-3">
                 {getAvailableServices().map(({ offer, details }) => {
                   const isPromo = offer.serviceId === PROMO_SERVICE_ID;
                   const discountedPrice = isPromo ? Math.floor(offer.price * PROMO_DISCOUNT) : null;
-
                   return (
                     <div
                       key={offer.serviceId}
@@ -636,19 +535,14 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({ bookings, userBook
               className="pb-20"
             >
               <h2 className="text-2xl font-black uppercase text-white mb-6">Когда удобно?</h2>
-              
               <div 
                 ref={dateScrollRef}
-                onMouseDown={handleMouseDown}
-                onMouseLeave={handleMouseLeave}
-                onMouseUp={handleMouseUp}
-                onMouseMove={handleMouseMove}
+                onMouseDown={handleMouseDown} onMouseLeave={handleMouseLeave} onMouseUp={handleMouseUp} onMouseMove={handleMouseMove}
                 className="mb-6 -mx-4 px-4 overflow-x-auto no-scrollbar flex gap-3 cursor-grab active:cursor-grabbing select-none"
               >
                 {dates.map((date) => {
                    const isSelected = date.getTime() === selectedDate.getTime();
                    const isWorkDay = selectedBarber ? selectedBarber.workDays.includes(date.getDay()) : true;
-
                    return (
                      <button
                        key={date.getTime()}
@@ -664,11 +558,7 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({ bookings, userBook
                        `}
                      >
                        <span className="text-[10px] font-bold uppercase">{getDayName(date)}</span>
-                       {isWorkDay ? (
-                          <span className="text-xl font-black">{date.getDate()}</span>
-                       ) : (
-                          <span className="text-xs font-bold mt-1">ВЫХ</span>
-                       )}
+                       {isWorkDay ? <span className="text-xl font-black">{date.getDate()}</span> : <span className="text-xs font-bold mt-1">ВЫХ</span>}
                      </button>
                    )
                 })}
@@ -688,15 +578,10 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({ bookings, userBook
                 <div className="mt-8 p-6 bg-zinc-900/50 border border-amber-600/20 rounded-xl text-center">
                    <p className="text-white font-bold uppercase text-sm mb-2">У вас уже есть запись на {formatDate(selectedDate)}</p>
                    <p className="text-xs text-zinc-500 mb-6 leading-relaxed">
-                     Система разрешает одну запись в день. <br/>
-                     Хотите добавить еще одну услугу на этот день?
+                     Система разрешает одну запись в день. <br/> Хотите добавить еще одну услугу?
                    </p>
-                   <a 
-                     href="tel:+79805470406"
-                     className="inline-flex items-center gap-2 px-4 py-3 bg-zinc-800 hover:bg-zinc-700 text-white rounded-lg text-xs font-bold uppercase tracking-wider transition-colors border border-zinc-700 hover:border-amber-600"
-                   >
-                     <PhoneCall size={16} className="text-amber-600" />
-                     Позвонить администратору
+                   <a href="tel:+79805470406" className="inline-flex items-center gap-2 px-4 py-3 bg-zinc-800 hover:bg-zinc-700 text-white rounded-lg text-xs font-bold uppercase tracking-wider transition-colors border border-zinc-700 hover:border-amber-600">
+                     <PhoneCall size={16} className="text-amber-600" /> Позвонить администратору
                    </a>
                 </div>
               ) : (
@@ -704,11 +589,9 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({ bookings, userBook
                   {renderTimeSection('Утро', <Sun size={16} />, groupedSlots.morning)}
                   {renderTimeSection('День', <Sun size={16} className="text-amber-500" />, groupedSlots.day)}
                   {renderTimeSection('Вечер', <Moon size={16} className="text-blue-400" />, groupedSlots.evening)}
-
                   {timeSlots.every(s => !s.available) && timeSlots.length > 0 && (
                      <div className="mt-8 p-4 bg-zinc-900/50 border border-zinc-800 rounded-xl text-center">
                         <p className="text-zinc-400 text-sm mb-1">На эту дату нет свободного времени.</p>
-                        <p className="text-xs text-zinc-600">Пожалуйста, выберите другой день.</p>
                      </div>
                   )}
                 </>
@@ -722,100 +605,53 @@ export const BookingWizard: React.FC<BookingWizardProps> = ({ bookings, userBook
               className="pb-24"
             >
               <h2 className="text-2xl font-black uppercase text-white mb-6">Ваши данные</h2>
-              
               <div className="space-y-6 mb-8">
                 <div>
                   <label className="text-xs font-bold text-zinc-500 uppercase mb-2 block">Имя</label>
-                  <input
-                    type="text"
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
-                    className="w-full bg-zinc-900 border-none rounded-xl p-4 text-white text-lg focus:ring-2 focus:ring-amber-600 placeholder-zinc-700"
-                    placeholder={tgUser ? "Имя из Telegram" : "Иван"}
-                  />
+                  <input type="text" value={name} onChange={(e) => setName(e.target.value)} className="w-full bg-zinc-900 border-none rounded-xl p-4 text-white text-lg focus:ring-2 focus:ring-amber-600 placeholder-zinc-700" placeholder={tgUser ? "Имя из Telegram" : "Иван"} />
                 </div>
                 <div>
                   <label className="text-xs font-bold text-zinc-500 uppercase mb-2 block">Телефон</label>
                   <div className="flex items-center bg-zinc-900 rounded-xl overflow-hidden px-4 py-4 focus-within:ring-2 focus-within:ring-amber-600">
                     <span className="text-zinc-400 text-lg font-mono mr-2">+7</span>
-                    <input
-                      type="tel"
-                      value={phone}
-                      onChange={handlePhoneChange}
-                      className="flex-1 bg-transparent border-none p-0 text-white text-lg font-mono focus:ring-0 placeholder-zinc-700 outline-none"
-                      placeholder="900 000 00 00"
-                    />
+                    <input type="tel" value={phone} onChange={handlePhoneChange} className="flex-1 bg-transparent border-none p-0 text-white text-lg font-mono focus:ring-0 placeholder-zinc-700 outline-none" placeholder="900 000 00 00" />
                   </div>
                 </div>
               </div>
 
               <div className="bg-zinc-900/50 rounded-xl p-5 border border-zinc-800">
-                <h3 className="text-xs font-bold text-zinc-500 uppercase mb-4 tracking-wider flex items-center gap-2 border-b border-zinc-800 pb-2">
-                  <span>Детали записи</span>
-                </h3>
+                <h3 className="text-xs font-bold text-zinc-500 uppercase mb-4 tracking-wider flex items-center gap-2 border-b border-zinc-800 pb-2"><span>Детали записи</span></h3>
                 <div className="space-y-3">
                   <div className="flex justify-between items-center">
-                    <div className="flex items-center gap-2 text-zinc-400">
-                       <User size={14} />
-                       <span className="text-xs uppercase">Мастер</span>
-                    </div>
+                    <div className="flex items-center gap-2 text-zinc-400"><User size={14} /><span className="text-xs uppercase">Мастер</span></div>
                     <div className="text-white font-bold text-sm">{selectedBarber?.name}</div>
                   </div>
                   <div className="flex justify-between items-center">
-                    <div className="flex items-center gap-2 text-zinc-400">
-                       <Scissors size={14} />
-                       <span className="text-xs uppercase">Услуга</span>
-                    </div>
+                    <div className="flex items-center gap-2 text-zinc-400"><Scissors size={14} /><span className="text-xs uppercase">Услуга</span></div>
                     <div className="text-white font-bold text-sm text-right max-w-[60%] truncate">{selectedServiceDetails?.name}</div>
                   </div>
                   <div className="flex justify-between items-center">
-                    <div className="flex items-center gap-2 text-zinc-400">
-                       <Clock size={14} />
-                       <span className="text-xs uppercase">Время</span>
-                    </div>
-                    <div className="text-white font-bold text-sm">
-                      {formatDate(selectedDate)} <span className="text-zinc-500">|</span> {selectedTime?.time}
-                    </div>
+                    <div className="flex items-center gap-2 text-zinc-400"><Clock size={14} /><span className="text-xs uppercase">Время</span></div>
+                    <div className="text-white font-bold text-sm">{formatDate(selectedDate)} <span className="text-zinc-500">|</span> {selectedTime?.time}</div>
                   </div>
                   <div className="flex justify-between items-center pt-2 border-t border-zinc-800/50 mt-2">
                     <span className="text-zinc-500 text-xs uppercase font-bold">Итого</span>
-                    <div className="text-amber-600 font-mono font-black text-lg">
-                      от {selectedServiceOffer?.serviceId === PROMO_SERVICE_ID 
-                        ? Math.floor((selectedServiceOffer?.price || 0) * PROMO_DISCOUNT) 
-                        : selectedServiceOffer?.price}₽
-                    </div>
+                    <div className="text-amber-600 font-mono font-black text-lg">от {selectedServiceOffer?.serviceId === PROMO_SERVICE_ID ? Math.floor((selectedServiceOffer?.price || 0) * PROMO_DISCOUNT) : selectedServiceOffer?.price}₽</div>
                   </div>
                 </div>
               </div>
-
               <div className="fixed bottom-0 left-0 right-0 p-4 bg-zinc-950 border-t border-zinc-900 z-20">
-                 <button
-                   onClick={handleNext}
-                   disabled={!canProceed() || isSubmitting}
-                   className="w-full py-4 bg-white text-black font-black uppercase tracking-widest rounded-none hover:bg-zinc-200 disabled:opacity-50 disabled:pointer-events-none active:scale-[0.98] transition-transform flex items-center justify-center gap-2"
-                 >
-                   {isSubmitting ? (
-                     <>
-                       <span className="animate-spin h-4 w-4 border-2 border-black border-t-transparent rounded-full"/>
-                       ОТПРАВКА...
-                     </>
-                   ) : 'ПОДТВЕРДИТЬ ЗАПИСЬ'}
+                 <button onClick={handleNext} disabled={!canProceed() || isSubmitting} className="w-full py-4 bg-white text-black font-black uppercase tracking-widest rounded-none hover:bg-zinc-200 disabled:opacity-50 disabled:pointer-events-none active:scale-[0.98] transition-transform flex items-center justify-center gap-2">
+                   {isSubmitting ? <><span className="animate-spin h-4 w-4 border-2 border-black border-t-transparent rounded-full"/> ОТПРАВКА...</> : 'ПОДТВЕРДИТЬ ЗАПИСЬ'}
                  </button>
               </div>
             </motion.div>
           )}
         </div>
       </div>
-
       {step < 4 && (
         <div className="fixed bottom-0 left-0 right-0 p-4 bg-zinc-950 border-t border-zinc-900 z-20">
-          <button
-            onClick={handleNext}
-            disabled={!canProceed()}
-            className="w-full py-4 bg-white text-black font-black uppercase tracking-widest rounded-none hover:bg-zinc-200 disabled:opacity-50 disabled:pointer-events-none active:scale-[0.98] transition-transform"
-          >
-            Далее
-          </button>
+          <button onClick={handleNext} disabled={!canProceed()} className="w-full py-4 bg-white text-black font-black uppercase tracking-widest rounded-none hover:bg-zinc-200 disabled:opacity-50 disabled:pointer-events-none active:scale-[0.98] transition-transform">Далее</button>
         </div>
       )}
     </div>
